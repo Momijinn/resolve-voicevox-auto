@@ -87,10 +87,6 @@ if [[ -f "$TARGET_DIR/config_gui.lua" ]]; then
   rm -f "$TARGET_DIR/config_gui.lua"
   echo "removed legacy config_gui.lua: $TARGET_DIR/config_gui.lua"
 fi
-if [[ -f "$SRC_DIR/subtitles.sample.srt" ]]; then
-  cp "$SRC_DIR/subtitles.sample.srt" "$TARGET_DIR/subtitles.sample.srt"
-fi
-
 cat <<EOF
 Installed Resolve Lua scripts.
 - Source: $SRC_DIR

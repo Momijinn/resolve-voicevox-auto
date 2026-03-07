@@ -801,36 +801,6 @@ local function synthesize_wav(vcfg, text, out_wav, audio_padding_sec)
 end
 
 local function import_and_place(media_pool, timeline, wav_path, start_frame, audio_track_index)
-  -- 現在のフォルダを保存し、"voicevox" ビンを取得または作成してからインポート
-  local original_folder = nil
-  local ok_gf, cur_folder = pcall(function() return media_pool:GetCurrentFolder() end)
-  if ok_gf and cur_folder then
-    original_folder = cur_folder
-  end
-
-  local target_bin = nil
-  if original_folder then
-    local ok_sf, subfolders = pcall(function() return original_folder:GetSubFolderList() end)
-    if ok_sf and type(subfolders) == "table" then
-      for _, sf in ipairs(subfolders) do
-        local ok_n, n = pcall(function() return sf:GetName() end)
-        if ok_n and n == "voicevox" then
-          target_bin = sf
-          break
-        end
-      end
-    end
-    if not target_bin then
-      local ok_add, new_bin = pcall(function() return media_pool:AddSubFolder(original_folder, "voicevox") end)
-      if ok_add and new_bin then
-        target_bin = new_bin
-      end
-    end
-    if target_bin then
-      pcall(function() media_pool:SetCurrentFolder(target_bin) end)
-    end
-  end
-
   local imported = media_pool:ImportMedia({ wav_path })
 
   if original_folder then
@@ -875,7 +845,6 @@ local function run_main_job()
   math.randomseed(os.time())
 
   local output_dir_raw = rt.output_dir or ""
-  local srt_fallback_path = resolve_path(script_dir, rt.srt_fallback_path or "")
   local log_path = resolve_path(script_dir, rt.log_path or "run.log")
 
   _log_file_path = log_path
@@ -920,12 +889,7 @@ local function run_main_job()
     return 1
   end
 
-  local output_dir = base_dir .. "/voicevox"
-  if not ensure_dir(output_dir) then
-    log_line("voicevox フォルダの作成に失敗: " .. tostring(output_dir))
-    notify_mac("Resolve VOICEVOX", "voicevox フォルダ作成に失敗")
-    return 1
-  end
+  local output_dir = base_dir
   log_line("output_dir=" .. tostring(output_dir))
 
   local timeline = project:GetCurrentTimeline()
@@ -939,27 +903,14 @@ local function run_main_job()
   local fps = tonumber(project:GetSetting("timelineFrameRate")) or 30
   log_line("timeline fps=" .. tostring(fps))
 
-  local segments = {}
-  if rt.use_timeline_subtitle_track then
-    segments = get_subtitle_segments_from_timeline(
-      timeline,
-      tonumber(rcfg.subtitle_track_index),
-      rcfg.subtitle_text_property_candidates
-    )
-  end
-
-  if #segments == 0 and srt_fallback_path and #srt_fallback_path > 0 then
-    local srt_content = read_file(srt_fallback_path)
-    if srt_content then
-      segments = parse_srt(srt_content, fps)
-      log_line("loaded srt fallback: " .. tostring(srt_fallback_path) .. " segments=" .. tostring(#segments))
-    else
-      log_line("failed to read srt fallback: " .. tostring(srt_fallback_path))
-    end
-  end
+  local segments = get_subtitle_segments_from_timeline(
+    timeline,
+    tonumber(rcfg.subtitle_track_index),
+    rcfg.subtitle_text_property_candidates
+  )
 
   if #segments == 0 then
-    log_line("字幕データが取得できませんでした。字幕トラック設定またはSRTフォールバックを確認してください。")
+    log_line("字幕データが取得できませんでした。字幕トラック設定を確認してください。")
     notify_mac("Resolve VOICEVOX", "字幕データが取得できません")
     return 1
   end
@@ -989,7 +940,7 @@ local function run_main_job()
       log_line("[再利用] " .. filename)
     end
 
-    if generated_ok and (not rt.dry_run) then
+    if generated_ok then
       local ok_place, placed_item = import_and_place(media_pool, timeline, wav_path, seg.start_frame, rcfg.audio_track_index)
       if ok_place then
         placed = placed + 1
@@ -1009,11 +960,7 @@ local function run_main_job()
     end
   end
 
-  if rt.dry_run then
-    log_line("dry_run=true のため、音声配置はスキップしました。")
-  else
-    log_line(string.format("配置完了: %d/%d", placed, #segments))
-  end
+  log_line(string.format("配置完了: %d/%d", placed, #segments))
 
   notify_mac("Resolve VOICEVOX", string.format("完了: %d/%d", placed, #segments))
   log_line("=== end main.lua ===")
