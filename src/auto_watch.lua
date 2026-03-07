@@ -295,60 +295,11 @@ local function detect_media_pool_current_dir(project)
   return nil
 end
 
-local function resolve_output_dir(script_dir, output_dir_value, project)
+local function resolve_output_dir(script_dir, output_dir_value)
   local raw = trim(output_dir_value or "")
   if raw == "" then
-    raw = "@media_pool_dir/voicevox"
+    return nil, "output_dir が設定されていません。\nconfig.lua の output_dir に保存先の親フォルダを指定してください。"
   end
-
-  if raw:sub(1, 15) == "@media_pool_dir" then
-    local media_dir = detect_media_pool_current_dir(project)
-    if not media_dir then
-      return nil, "media pool current folder directory could not be detected"
-    end
-
-    local suffix = raw:sub(16)
-    if suffix == "" then
-      suffix = "/voicevox"
-    elseif suffix:sub(1, 1) ~= "/" then
-      suffix = "/" .. suffix
-    end
-
-    return media_dir .. suffix, nil
-  end
-
-  if raw:sub(1, 13) == "@timeline_dir" then
-    local timeline_dir = detect_timeline_dir(project)
-    if not timeline_dir then
-      return nil, "timeline directory could not be detected"
-    end
-
-    local suffix = raw:sub(14)
-    if suffix == "" then
-      suffix = "/voicevox"
-    elseif suffix:sub(1, 1) ~= "/" then
-      suffix = "/" .. suffix
-    end
-
-    return timeline_dir .. suffix, nil
-  end
-
-  if raw:sub(1, 13) == "@project_root" then
-    local root = detect_project_root(project)
-    if not root then
-      return nil, "project root could not be detected"
-    end
-
-    local suffix = raw:sub(14)
-    if suffix == "" then
-      suffix = "/voicevox"
-    elseif suffix:sub(1, 1) ~= "/" then
-      suffix = "/" .. suffix
-    end
-
-    return root .. suffix, nil
-  end
-
   return resolve_path(script_dir, raw), nil
 end
 
@@ -925,7 +876,7 @@ local function run_watch_job()
   local rcfg = config.resolve or {}
   local rt = config.runtime or {}
 
-  local output_dir_raw = rt.output_dir or "@media_pool_dir/voicevox"
+  local output_dir_raw = rt.output_dir or ""
   local log_path = resolve_path(script_dir, rt.log_path or "./run.log")
   local stop_file = resolve_path(script_dir, rt.watch_stop_file or "./watch.stop")
   local lock_file = resolve_path(script_dir, rt.watch_lock_file or "./watch.lock")
@@ -973,18 +924,22 @@ local function run_watch_job()
     return 1
   end
 
-  local output_dir, output_dir_err = resolve_output_dir(script_dir, output_dir_raw, project)
-  if not output_dir then
-    log_line("output_dir resolve failed: " .. tostring(output_dir_err))
-    log_line("set runtime.output_dir as absolute path if needed")
+  local base_dir, base_dir_err = resolve_output_dir(script_dir, output_dir_raw)
+  if not base_dir then
+    log_line("出力先の解決に失敗: " .. tostring(base_dir_err))
     return 1
   end
 
+  if not is_dir(base_dir) then
+    log_line("出力先フォルダが存在しません: " .. tostring(base_dir))
+    return 1
+  end
+
+  local output_dir = base_dir .. "/voicevox"
   if not ensure_dir(output_dir) then
-    log_line("出力ディレクトリ作成に失敗: " .. tostring(output_dir))
+    log_line("voicevox フォルダの作成に失敗: " .. tostring(output_dir))
     return 1
   end
-
   log_line("output_dir=" .. tostring(output_dir))
 
   log_line("start auto watch interval=" .. tostring(interval_sec) .. "s track=" .. tostring(rcfg.audio_track_index or 1))

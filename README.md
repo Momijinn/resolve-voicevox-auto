@@ -40,16 +40,7 @@ git clone <your-repository-url>
 cd <repository-directory>
 ```
 
-2. VOICEVOX Engine を確認
-
-ネイティブインストール版または Docker 版のいずれかが起動していれば自動検出します。
-Docker (`voicevox_engine` コンテナ) は `main.lua` / `auto_watch.lua` 実行時に自動起動・自動停止します。
-
-```bash
-curl -sS http://127.0.0.1:50021/version
-```
-
-3. Resolve Scripts 配下へコピー
+2. Resolve Scripts 配下へコピー
 
 ```bash
 ./scripts/install_resolve_lua.sh
@@ -68,11 +59,22 @@ curl -sS http://127.0.0.1:50021/version
 ./scripts/install_resolve_lua.sh --config-policy pull
 ```
 
-4. DaVinci Resolve で実行
-- `Workspace > Scripts > Utility > resolve_voicevox_auto > config.lua` を開いて設定保存
-- 一括実行: `main.lua`
-- 監視開始: `auto_watch.lua`
-- 監視停止: `stop_watch.lua`
+3. DaVinci Resolve で実行
+
+   **最初に必ず `config.lua` を開いて `output_dir` を設定・保存してください。**
+   `output_dir` が未設定のままスクリプトを実行するとエラーになります。
+
+   - `Workspace > Scripts > Utility > resolve_voicevox_auto > config.lua` を開く
+   - `output_dir` に **既存のフォルダ** を絶対パスで指定する（例: `/Users/you/Movies`）
+     - 指定したフォルダの中に `voicevox/` が自動作成され、そこに WAV が保存されます
+     - 指定したフォルダ自体が存在しない場合はエラーになります（自動作成しません）
+   - 「保存」ボタンで `config.data` に保存する
+
+   ![config GUI](docs/ss-2026-03-08-0-58-54.jpg)
+
+   - 一括実行: `main.lua`
+   - 監視開始: `auto_watch.lua`
+   - 監視停止: `stop_watch.lua`
 
 ## Uninstall
 
@@ -96,19 +98,14 @@ Resolve Scripts 配下から削除する場合:
 - `voicevox.speaker_id`: 話者ID
 - `resolve.audio_track_index`: 配置先オーディオトラック
 - `resolve.subtitle_track_index`: 取得元字幕トラック
-- `runtime.output_dir`: 生成WAV出力先（デフォルト: `@media_pool_dir/voicevox`）
+- `runtime.output_dir`: WAV の保存先親フォルダ（**必須**）。既存のフォルダを絶対パスで指定してください（例: `/Users/you/Movies`）。指定フォルダ内に `voicevox/` を自動作成して WAV を保存します。未設定または存在しないパスを指定した場合はエラーになります。
 - `runtime.srt_fallback_path`: 字幕取得不可時のSRTパス
 - `runtime.watch_interval_sec`: 監視間隔（秒）
 - `runtime.managed_clip_prefix`: 自動管理クリップ識別子
 
-`@media_pool_dir` は、メディアプールで現在開いているフォルダに含まれるクリップの実ファイルディレクトリを指します。
-既定では、その検出ディレクトリの1階層上をベースに `voicevox` を作成します。
-クリップ実体から判定できない場合は `@timeline_dir` / `@project_root` 系の推定にフォールバックします。
-判定できない環境では、`runtime.output_dir` に絶対パス（例: `/Users/you/Projects/myproj/voicevox`）を指定してください。
-
 ## Notes
 
-- 生成音声は既定で `@media_pool_dir/voicevox`（現在開いているメディアプールフォルダ側）に保存されます。
+- 生成音声は `{output_dir}/voicevox/` フォルダに保存されます。`output_dir` には存在する親フォルダを指定してください（自動作成しません）。
 - Resolve API のバージョン差で字幕テキスト取得が不安定な場合、`runtime.srt_fallback_path` を利用してください。
 - 監視モードは単一起動で使用してください（ロックファイルで多重起動を防止）。
 - `main.lua` / `auto_watch.lua` 実行時は VOICEVOX Docker (`voicevox_engine`) を自動起動します。

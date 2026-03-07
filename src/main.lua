@@ -151,6 +151,14 @@ local function notify_mac(title, message)
   os.execute("/usr/bin/osascript -e " .. shell_quote(script))
 end
 
+local function alert_mac(title, message)
+  local t = tostring(title or "Resolve VOICEVOX")
+  local m = tostring(message or "")
+  local script = string.format('display dialog "%s" with title "%s" buttons {"OK"} default button "OK" with icon stop',
+    m:gsub('"', '\\"'), t:gsub('"', '\\"'))
+  os.execute("/usr/bin/osascript -e " .. shell_quote(script))
+end
+
 local function resolve_path(base_dir, value)
   if not value or value == "" then
     return value
@@ -313,6 +321,38 @@ local function detect_timeline_dir(project)
   return nil
 end
 
+local function detect_project_cache_dir(project)
+  if not project then return nil end
+  local ok, value = pcall(function() return project:GetSetting("CacheClipLocation") end)
+  if ok and type(value) == "string" then
+    local d = maybe_dir(value)
+    if d then return d end
+  end
+  return nil
+end
+
+local function detect_capture_dir(project)
+  if not project then return nil end
+  for _, key in ipairs({ "CaptureLocation", "MediaStorageLocation" }) do
+    local ok, value = pcall(function() return project:GetSetting(key) end)
+    if ok and type(value) == "string" then
+      local d = maybe_dir(value)
+      if d then return d end
+    end
+  end
+  return nil
+end
+
+local function detect_media_storage_dir(project)
+  if not project then return nil end
+  local ok, value = pcall(function() return project:GetSetting("MediaStorageLocation") end)
+  if ok and type(value) == "string" then
+    local d = maybe_dir(value)
+    if d then return d end
+  end
+  return nil
+end
+
 local function detect_media_pool_current_dir(project)
   if not project then return nil end
   local media_pool = project:GetMediaPool()
@@ -387,60 +427,11 @@ local function detect_media_pool_current_dir(project)
   return nil
 end
 
-local function resolve_output_dir(script_dir, output_dir_value, project)
+local function resolve_output_dir(script_dir, output_dir_value)
   local raw = trim(output_dir_value or "")
   if raw == "" then
-    raw = "@media_pool_dir/voicevox"
+    return nil, "output_dir が設定されていません。\nconfig.lua の output_dir に保存先の親フォルダを指定してください。"
   end
-
-  if raw:sub(1, 15) == "@media_pool_dir" then
-    local media_dir = detect_media_pool_current_dir(project)
-    if not media_dir then
-      return nil, "media pool current folder directory could not be detected"
-    end
-
-    local suffix = raw:sub(16)
-    if suffix == "" then
-      suffix = "/voicevox"
-    elseif suffix:sub(1, 1) ~= "/" then
-      suffix = "/" .. suffix
-    end
-
-    return media_dir .. suffix, nil
-  end
-
-  if raw:sub(1, 13) == "@timeline_dir" then
-    local timeline_dir = detect_timeline_dir(project)
-    if not timeline_dir then
-      return nil, "timeline directory could not be detected"
-    end
-
-    local suffix = raw:sub(14)
-    if suffix == "" then
-      suffix = "/voicevox"
-    elseif suffix:sub(1, 1) ~= "/" then
-      suffix = "/" .. suffix
-    end
-
-    return timeline_dir .. suffix, nil
-  end
-
-  if raw:sub(1, 13) == "@project_root" then
-    local root = detect_project_root(project)
-    if not root then
-      return nil, "project root could not be detected"
-    end
-
-    local suffix = raw:sub(14)
-    if suffix == "" then
-      suffix = "/voicevox"
-    elseif suffix:sub(1, 1) ~= "/" then
-      suffix = "/" .. suffix
-    end
-
-    return root .. suffix, nil
-  end
-
   return resolve_path(script_dir, raw), nil
 end
 
@@ -883,7 +874,7 @@ local function run_main_job()
 
   math.randomseed(os.time())
 
-  local output_dir_raw = rt.output_dir or "@media_pool_dir/voicevox"
+  local output_dir_raw = rt.output_dir or ""
   local srt_fallback_path = resolve_path(script_dir, rt.srt_fallback_path or "")
   local log_path = resolve_path(script_dir, rt.log_path or "run.log")
 
@@ -915,17 +906,24 @@ local function run_main_job()
     return 1
   end
 
-  local output_dir, output_dir_err = resolve_output_dir(script_dir, output_dir_raw, project)
-  if not output_dir then
-    log_line("出力先の解決に失敗: " .. tostring(output_dir_err))
-    log_line("runtime.output_dir を絶対パスで設定してください")
-    notify_mac("Resolve VOICEVOX", "出力先の解決に失敗")
+  local base_dir, base_dir_err = resolve_output_dir(script_dir, output_dir_raw)
+  if not base_dir then
+    log_line("出力先の解決に失敗: " .. tostring(base_dir_err))
+    alert_mac("Resolve VOICEVOX - 出力先エラー", tostring(base_dir_err))
     return 1
   end
 
+  if not is_dir(base_dir) then
+    local msg = "出力先フォルダが存在しません:\n" .. tostring(base_dir) .. "\n\n存在するフォルダを output_dir に指定してください。"
+    log_line("出力先フォルダが存在しません: " .. tostring(base_dir))
+    alert_mac("Resolve VOICEVOX - 出力先エラー", msg)
+    return 1
+  end
+
+  local output_dir = base_dir .. "/voicevox"
   if not ensure_dir(output_dir) then
-    log_line("出力ディレクトリの作成に失敗: " .. tostring(output_dir))
-    notify_mac("Resolve VOICEVOX", "出力ディレクトリ作成に失敗")
+    log_line("voicevox フォルダの作成に失敗: " .. tostring(output_dir))
+    notify_mac("Resolve VOICEVOX", "voicevox フォルダ作成に失敗")
     return 1
   end
   log_line("output_dir=" .. tostring(output_dir))
