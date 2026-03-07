@@ -16,7 +16,6 @@ DaVinci Resolve の字幕を元に VOICEVOX で音声を生成し、タイムラ
 - `src/stop_watch.lua` : 監視停止
 - `src/config.lua` : 設定GUI
 - `src/config.data` : 設定ファイル
-- `src/subtitles.sample.srt` : SRTサンプル（`runtime.srt_fallback_path` の動作確認用）
 - `scripts/install_resolve_lua.sh` : Resolve 用ディレクトリへコピー（`config.data` の挙動を引数指定可）
 - `scripts/uninstall_resolve_lua.sh` : Resolve 用ディレクトリからアンインストール
 
@@ -65,12 +64,14 @@ cd <repository-directory>
    `output_dir` が未設定のままスクリプトを実行するとエラーになります。
 
    - `Workspace > Scripts > Utility > resolve_voicevox_auto > config.lua` を開く
-   - `output_dir` に **既存のフォルダ** を絶対パスで指定する（例: `/Users/you/Movies`）
-     - 指定したフォルダの中に `voicevox/` が自動作成され、そこに WAV が保存されます
-     - 指定したフォルダ自体が存在しない場合はエラーになります（自動作成しません）
+
+   ![config.lua](./docs/images/ss-2026-03-08-2-44-45.jpg)
+
+   - `output_dir` に **既存のフォルダ** を絶対パスで指定する（例: `/Users/you/Movies/voice`）
+     - 指定したフォルダへ直接 WAV が保存されます
    - 「保存」ボタンで `config.data` に保存する
 
-   ![config GUI](docs/ss-2026-03-08-0-58-54.jpg)
+   ![config GUI](docs/images/ss-2026-03-08-0-58-54.jpg)
 
    - 一括実行: `main.lua`
    - 監視開始: `auto_watch.lua`
@@ -92,21 +93,13 @@ Resolve Scripts 配下から削除する場合:
 
 ## Configuration
 
-設定は `src/config.data` で管理します（通常は `config.lua` から編集）。主な項目:
+設定は `src/config.data` で管理します（通常は `config.lua` から編集）。
 
-- `voicevox.base_url`: VOICEVOX Engine URL
-- `voicevox.speaker_id`: 話者ID
-- `resolve.audio_track_index`: 配置先オーディオトラック
-- `resolve.subtitle_track_index`: 取得元字幕トラック
-- `runtime.output_dir`: WAV の保存先親フォルダ（**必須**）。既存のフォルダを絶対パスで指定してください（例: `/Users/you/Movies`）。指定フォルダ内に `voicevox/` を自動作成して WAV を保存します。未設定または存在しないパスを指定した場合はエラーになります。
-- `runtime.srt_fallback_path`: 字幕取得不可時のSRTパス
-- `runtime.watch_interval_sec`: 監視間隔（秒）
-- `runtime.managed_clip_prefix`: 自動管理クリップ識別子
+詳細は [docs/config.md](docs/config.md) を参照してください。
 
 ## Notes
 
-- 生成音声は `{output_dir}/voicevox/` フォルダに保存されます。`output_dir` には存在する親フォルダを指定してください（自動作成しません）。
-- Resolve API のバージョン差で字幕テキスト取得が不安定な場合、`runtime.srt_fallback_path` を利用してください。
+- 生成音声は `output_dir` に指定したフォルダへ直接保存されます。存在するフォルダを絶対パスで指定してください（自動作成しません）。
 - 監視モードは単一起動で使用してください（ロックファイルで多重起動を防止）。
 - `main.lua` / `auto_watch.lua` 実行時は VOICEVOX Docker (`voicevox_engine`) を自動起動します。
 - 実行終了時に、その実行で起動したコンテナは自動停止します。

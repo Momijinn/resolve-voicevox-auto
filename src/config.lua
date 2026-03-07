@@ -63,10 +63,7 @@ local function serialize_config(cfg)
     "",
     "  runtime = {",
     string.format('    output_dir = "%s",', escape_lua_string(rt.output_dir or "")),
-    string.format("    use_timeline_subtitle_track = %s,", rt.use_timeline_subtitle_track and "true" or "false"),
-    string.format('    srt_fallback_path = "%s",', escape_lua_string(rt.srt_fallback_path or "./subtitles.sample.srt")),
     string.format('    log_path = "%s",', escape_lua_string(rt.log_path or "./run.log")),
-    string.format("    dry_run = %s,", rt.dry_run and "true" or "false"),
     string.format("    overwrite = %s,", rt.overwrite and "true" or "false"),
     string.format("    audio_padding_sec = %s,", tostring(to_number(rt.audio_padding_sec, 0.15))),
     string.format("    watch_interval_sec = %s,", tostring(to_number(rt.watch_interval_sec, 2))),
@@ -105,10 +102,7 @@ local function load_or_default_config(config_path)
       },
       runtime = {
         output_dir = "",
-        use_timeline_subtitle_track = true,
-        srt_fallback_path = "./subtitles.sample.srt",
         log_path = "./run.log",
-        dry_run = false,
         overwrite = false,
         audio_padding_sec = 0.15,
         watch_interval_sec = 2,
@@ -585,10 +579,7 @@ local function main()
           ui:Button { ID = "output_dir_browse", Text = "参照...", Weight = 0 },
         },
       },
-      ui:HGroup { ui:Label { Text = "srt_fallback_path", Weight = 0.35 }, ui:LineEdit { ID = "srt_fallback_path", Weight = 0.65 } },
       ui:HGroup { ui:Label { Text = "log_path", Weight = 0.35 }, ui:LineEdit { ID = "log_path", Weight = 0.65 } },
-      ui:HGroup { ui:Label { Text = "use_timeline_subtitle_track", Weight = 0.35 }, ui:CheckBox { ID = "use_timeline_subtitle_track", Weight = 0.65, Text = "Use timeline subtitles" } },
-      ui:HGroup { ui:Label { Text = "dry_run", Weight = 0.35 }, ui:CheckBox { ID = "dry_run", Weight = 0.65, Text = "Generate only" } },
       ui:HGroup { ui:Label { Text = "overwrite", Weight = 0.35 }, ui:CheckBox { ID = "overwrite", Weight = 0.65, Text = "Regenerate wav" } },
       ui:HGroup { ui:Label { Text = "audio_padding_sec", Weight = 0.35 }, ui:LineEdit { ID = "audio_padding_sec", Weight = 0.65 } },
       ui:HGroup { ui:Label { Text = "watch_interval_sec", Weight = 0.35 }, ui:LineEdit { ID = "watch_interval_sec", Weight = 0.65 } },
@@ -704,10 +695,7 @@ local function main()
     items.subtitle_text_keys.Text = table.concat(rs.subtitle_text_property_candidates or { "Text", "StyledText", "Name" }, ",")
 
     items.output_dir.Text = tostring(rt.output_dir or "")
-    items.srt_fallback_path.Text = tostring(rt.srt_fallback_path or "./subtitles.sample.srt")
     items.log_path.Text = tostring(rt.log_path or "./run.log")
-    items.use_timeline_subtitle_track.Checked = rt.use_timeline_subtitle_track ~= false
-    items.dry_run.Checked = rt.dry_run == true
     items.overwrite.Checked = rt.overwrite == true
     items.audio_padding_sec.Text = tostring(rt.audio_padding_sec or 0.15)
     items.watch_interval_sec.Text = tostring(rt.watch_interval_sec or 2)
@@ -750,10 +738,7 @@ local function main()
       },
       runtime = {
         output_dir = trim(items.output_dir.Text),
-        use_timeline_subtitle_track = items.use_timeline_subtitle_track.Checked == true,
-        srt_fallback_path = trim(items.srt_fallback_path.Text),
         log_path = trim(items.log_path.Text),
-        dry_run = items.dry_run.Checked == true,
         overwrite = items.overwrite.Checked == true,
         audio_padding_sec = to_number(items.audio_padding_sec.Text, 0.15),
         watch_interval_sec = to_number(items.watch_interval_sec.Text, 2),
@@ -850,10 +835,7 @@ local function main()
     items.subtitle_text_keys.Text = table.concat(rs.subtitle_text_property_candidates or { "Text", "StyledText", "Name" }, ",")
 
     items.output_dir.Text = tostring(rt.output_dir or "")
-    items.srt_fallback_path.Text = tostring(rt.srt_fallback_path or "./subtitles.sample.srt")
     items.log_path.Text = tostring(rt.log_path or "./run.log")
-    items.use_timeline_subtitle_track.Checked = rt.use_timeline_subtitle_track ~= false
-    items.dry_run.Checked = rt.dry_run == true
     items.overwrite.Checked = rt.overwrite == true
     items.audio_padding_sec.Text = tostring(rt.audio_padding_sec or 0.15)
     items.watch_interval_sec.Text = tostring(rt.watch_interval_sec or 2)
