@@ -62,7 +62,7 @@ local function serialize_config(cfg)
     "  },",
     "",
     "  runtime = {",
-    string.format('    output_dir = "%s",', escape_lua_string(rt.output_dir or "@media_pool_dir/voicevox")),
+    string.format('    output_dir = "%s",', escape_lua_string(rt.output_dir or "")),
     string.format("    use_timeline_subtitle_track = %s,", rt.use_timeline_subtitle_track and "true" or "false"),
     string.format('    srt_fallback_path = "%s",', escape_lua_string(rt.srt_fallback_path or "./subtitles.sample.srt")),
     string.format('    log_path = "%s",', escape_lua_string(rt.log_path or "./run.log")),
@@ -104,7 +104,7 @@ local function load_or_default_config(config_path)
         subtitle_text_property_candidates = { "Text", "StyledText", "Name" },
       },
       runtime = {
-        output_dir = "@media_pool_dir/voicevox",
+        output_dir = "",
         use_timeline_subtitle_track = true,
         srt_fallback_path = "./subtitles.sample.srt",
         log_path = "./run.log",
@@ -576,7 +576,15 @@ local function main()
       Weight = 0,
       Spacing = 4,
       ui:Label { Text = "Runtime" },
-      ui:HGroup { ui:Label { Text = "output_dir", Weight = 0.35 }, ui:LineEdit { ID = "output_dir", Weight = 0.65 } },
+      ui:HGroup {
+        ui:Label { Text = "output_dir", Weight = 0.35 },
+        ui:HGroup {
+          Weight = 0.65,
+          Spacing = 4,
+          ui:LineEdit { ID = "output_dir" },
+          ui:Button { ID = "output_dir_browse", Text = "参照...", Weight = 0 },
+        },
+      },
       ui:HGroup { ui:Label { Text = "srt_fallback_path", Weight = 0.35 }, ui:LineEdit { ID = "srt_fallback_path", Weight = 0.65 } },
       ui:HGroup { ui:Label { Text = "log_path", Weight = 0.35 }, ui:LineEdit { ID = "log_path", Weight = 0.65 } },
       ui:HGroup { ui:Label { Text = "use_timeline_subtitle_track", Weight = 0.35 }, ui:CheckBox { ID = "use_timeline_subtitle_track", Weight = 0.65, Text = "Use timeline subtitles" } },
@@ -695,7 +703,7 @@ local function main()
     items.subtitle_track_index.Text = tostring(rs.subtitle_track_index or 1)
     items.subtitle_text_keys.Text = table.concat(rs.subtitle_text_property_candidates or { "Text", "StyledText", "Name" }, ",")
 
-    items.output_dir.Text = tostring(rt.output_dir or "@media_pool_dir/voicevox")
+    items.output_dir.Text = tostring(rt.output_dir or "")
     items.srt_fallback_path.Text = tostring(rt.srt_fallback_path or "./subtitles.sample.srt")
     items.log_path.Text = tostring(rt.log_path or "./run.log")
     items.use_timeline_subtitle_track.Checked = rt.use_timeline_subtitle_track ~= false
@@ -758,6 +766,20 @@ local function main()
     }
   end
 
+  function win.On.output_dir_browse.Clicked()
+    local current = trim(items.output_dir.Text)
+    -- @プレースホルダーの場合は $HOME/Movies を初期ディレクトリにする
+    local initial = current
+    if initial:sub(1, 1) == "@" or initial == "" then
+      initial = (os.getenv("HOME") or "") .. "/Movies"
+    end
+    local selected = fusion:RequestDir(initial)
+    if selected and trim(tostring(selected)) ~= "" then
+      local path = trim(tostring(selected)):gsub("/+$", "")
+      items.output_dir.Text = path
+    end
+  end
+
   function win.On.test_btn.Clicked()
     local base_url = trim(items.base_url.Text)
     if base_url == "" then
@@ -792,6 +814,10 @@ local function main()
 
   function win.On.save_btn.Clicked()
     local cfg = read_from_form()
+    if trim(cfg.runtime.output_dir or "") == "" then
+      set_status("エラー: output_dir が空です。保存先の親フォルダを指定してください。")
+      return
+    end
     local text = serialize_config(cfg)
     local ok, err = write_text_file(config_path, text)
     if ok then
@@ -823,7 +849,7 @@ local function main()
     items.subtitle_track_index.Text = tostring(rs.subtitle_track_index or 1)
     items.subtitle_text_keys.Text = table.concat(rs.subtitle_text_property_candidates or { "Text", "StyledText", "Name" }, ",")
 
-    items.output_dir.Text = tostring(rt.output_dir or "@media_pool_dir/voicevox")
+    items.output_dir.Text = tostring(rt.output_dir or "")
     items.srt_fallback_path.Text = tostring(rt.srt_fallback_path or "./subtitles.sample.srt")
     items.log_path.Text = tostring(rt.log_path or "./run.log")
     items.use_timeline_subtitle_track.Checked = rt.use_timeline_subtitle_track ~= false

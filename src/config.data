@@ -19,7 +19,7 @@ return {
 	},
 
 	runtime = {
-		output_dir = "@media_pool_dir/voicevox",
+		output_dir = "",
 		use_timeline_subtitle_track = true,
 		srt_fallback_path = "./subtitles.sample.srt",
 		log_path = "./run.log",
