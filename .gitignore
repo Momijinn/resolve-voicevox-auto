@@ -1,0 +1,11 @@
+# macOS
+.DS_Store
+
+# runtime outputs
+src/voicevox/
+src/run.log
+src/watch.stop
+src/watch.lock
+
+# optional local copies
+src/*.wav

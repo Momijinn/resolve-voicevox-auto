@@ -1,0 +1,37 @@
+return {
+	voicevox = {
+		base_url = "http://127.0.0.1:50021",
+		speaker_id = 1,
+		speed_scale = 1.0,
+		pitch_scale = 0.0,
+		intonation_scale = 1.0,
+		volume_scale = 1.0,
+		pre_phoneme_length = 0.1,
+		post_phoneme_length = 0.1,
+		sample_rate = 48000,
+		output_stereo = true,
+	},
+
+	resolve = {
+		audio_track_index = 1,
+		subtitle_track_index = 1,
+		subtitle_text_property_candidates = { "Text", "StyledText", "Name" },
+	},
+
+	runtime = {
+		output_dir = "@media_pool_dir/voicevox",
+		use_timeline_subtitle_track = true,
+		srt_fallback_path = "./subtitles.sample.srt",
+		log_path = "./run.log",
+		dry_run = false,
+		overwrite = false,
+		sync_subtitle_duration = true,
+		audio_padding_sec = 0.15,
+		watch_interval_sec = 2,
+		watch_stable_cycles = 2,
+		watch_delete_grace_cycles = 4,
+		watch_stop_file = "./watch.stop",
+		watch_lock_file = "./watch.lock",
+		managed_clip_prefix = "vvauto",
+	},
+}
