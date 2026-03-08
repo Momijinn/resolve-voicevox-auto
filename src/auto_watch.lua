@@ -759,16 +759,13 @@ local function get_clip_name_candidates(item)
 end
 
 local function import_and_place(media_pool, wav_path, start_frame, audio_track_index)
-  -- 現在のフォルダを保存し、"voicevox" ビンを取得または作成してからインポート
-  local original_folder = nil
-  local ok_gf, cur_folder = pcall(function() return media_pool:GetCurrentFolder() end)
-  if ok_gf and cur_folder then
-    original_folder = cur_folder
-  end
+  -- 常にルート直下の "voicevox" ビンを検索・作成してネストを防ぐ
+  local root_folder = nil
+  pcall(function() root_folder = media_pool:GetRootFolder() end)
 
   local target_bin = nil
-  if original_folder then
-    local ok_sf, subfolders = pcall(function() return original_folder:GetSubFolderList() end)
+  if root_folder then
+    local ok_sf, subfolders = pcall(function() return root_folder:GetSubFolderList() end)
     if ok_sf and type(subfolders) == "table" then
       for _, sf in ipairs(subfolders) do
         local ok_n, n = pcall(function() return sf:GetName() end)
@@ -779,14 +776,19 @@ local function import_and_place(media_pool, wav_path, start_frame, audio_track_i
       end
     end
     if not target_bin then
-      local ok_add, new_bin = pcall(function() return media_pool:AddSubFolder(original_folder, "voicevox") end)
+      local ok_add, new_bin = pcall(function() return media_pool:AddSubFolder(root_folder, "voicevox") end)
       if ok_add and new_bin then
         target_bin = new_bin
       end
     end
-    if target_bin then
-      pcall(function() media_pool:SetCurrentFolder(target_bin) end)
-    end
+  end
+
+  local original_folder = nil
+  local ok_gf, cur_folder = pcall(function() return media_pool:GetCurrentFolder() end)
+  if ok_gf and cur_folder then original_folder = cur_folder end
+
+  if target_bin then
+    pcall(function() media_pool:SetCurrentFolder(target_bin) end)
   end
 
   local imported = media_pool:ImportMedia({ wav_path })
