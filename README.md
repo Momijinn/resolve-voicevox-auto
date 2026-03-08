@@ -75,7 +75,7 @@ cd <repository-directory>
      - 指定したフォルダへ直接 WAV が保存されます
    - 「保存」ボタンで `config.data` に保存する
 
-   ![config GUI](docs/images/ss-2026-03-08-0-58-54.jpg)
+   ![config GUI](docs/images/ss-2026-03-09-1-20-08.jpg)
 
    - ビデオトラックに **Text+** クリップを配置し、合成したいテキストを入力する
      - `text_track_index` で読み取るビデオトラック番号を指定（デフォルト: 1）
