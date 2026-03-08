@@ -918,6 +918,7 @@ local function run_main_job()
   log_line("字幕セグメント数: " .. tostring(#segments))
 
   local placed = 0
+  local syn_errors = {}
   local pad_tag = padding_tag(rt.audio_padding_sec or 0)
   for i, seg in ipairs(segments) do
     local filename = string.format("%04d_%08d_%s.wav", i, seg.start_frame, pad_tag)
@@ -930,9 +931,11 @@ local function run_main_job()
       if not ok_call then
         generated_ok = false
         log_line("[失敗] 合成処理で例外: " .. filename .. " / " .. tostring(syn_ok))
+        table.insert(syn_errors, filename .. ": " .. tostring(syn_ok))
       elseif not syn_ok then
         generated_ok = false
         log_line("[失敗] 生成に失敗: " .. filename .. " / " .. tostring(syn_err))
+        table.insert(syn_errors, filename .. ": " .. tostring(syn_err))
       else
         log_line("[生成] " .. filename)
       end
@@ -958,6 +961,17 @@ local function run_main_job()
         log_line("[失敗] 配置に失敗: " .. filename)
       end
     end
+  end
+
+  if #syn_errors > 0 then
+    local msg = string.format("音声の生成に失敗しました (%d 件):\n\n", #syn_errors)
+    for j = 1, math.min(5, #syn_errors) do
+      msg = msg .. syn_errors[j] .. "\n"
+    end
+    if #syn_errors > 5 then
+      msg = msg .. "... 他 " .. (#syn_errors - 5) .. " 件"
+    end
+    alert_mac("Resolve VOICEVOX - 合成エラー", msg)
   end
 
   log_line(string.format("配置完了: %d/%d", placed, #segments))

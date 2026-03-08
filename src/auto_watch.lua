@@ -59,6 +59,14 @@ local function ensure_dir(path)
   return execute_ok(os.execute("mkdir -p " .. shell_quote(path)))
 end
 
+local function alert_mac(title, message)
+  local t = tostring(title or "Resolve VOICEVOX")
+  local m = tostring(message or "")
+  local script = string.format('display dialog "%s" with title "%s" buttons {"OK"} default button "OK" with icon stop',
+    m:gsub('"', '\\"'), t:gsub('"', '\\"'))
+  os.execute("/usr/bin/osascript -e " .. shell_quote(script))
+end
+
 local function resolve_path(base_dir, value)
   if not value or value == "" then
     return value
@@ -909,37 +917,39 @@ local function run_watch_job()
   local health = run_capture("curl -sS " .. shell_quote((vcfg.base_url or "http://127.0.0.1:50021") .. "/version"))
   if not health or #trim(health) == 0 then
     log_line("VOICEVOX Engine に接続できません。")
+    alert_mac("Resolve VOICEVOX - エラー", "VOICEVOX Engine に接続できません。\nbase_url を確認してください。")
     return 1
   end
 
   local resolve_obj = resolve or (Resolve and Resolve())
   if not resolve_obj then
     log_line("Resolve APIへの接続に失敗しました。")
+    alert_mac("Resolve VOICEVOX - エラー", "Resolve API への接続に失敗しました。")
     return 1
   end
 
   local project = safe_get_current_project(resolve_obj)
   if not project then
     log_line("現在のプロジェクトが見つかりません。")
+    alert_mac("Resolve VOICEVOX - エラー", "現在のプロジェクトが見つかりません。")
     return 1
   end
 
   local base_dir, base_dir_err = resolve_output_dir(script_dir, output_dir_raw)
   if not base_dir then
     log_line("出力先の解決に失敗: " .. tostring(base_dir_err))
+    alert_mac("Resolve VOICEVOX - 出力先エラー", tostring(base_dir_err))
     return 1
   end
 
   if not is_dir(base_dir) then
+    local msg = "出力先フォルダが存在しません:\n" .. tostring(base_dir) .. "\n\n存在するフォルダを output_dir に指定してください。"
     log_line("出力先フォルダが存在しません: " .. tostring(base_dir))
+    alert_mac("Resolve VOICEVOX - 出力先エラー", msg)
     return 1
   end
 
-  local output_dir = base_dir .. "/voicevox"
-  if not ensure_dir(output_dir) then
-    log_line("voicevox フォルダの作成に失敗: " .. tostring(output_dir))
-    return 1
-  end
+  local output_dir = base_dir
   log_line("output_dir=" .. tostring(output_dir))
 
   log_line("start auto watch interval=" .. tostring(interval_sec) .. "s track=" .. tostring(rcfg.audio_track_index or 1))
@@ -1025,6 +1035,8 @@ local function run_watch_job()
       local placed_count = 0
       local deleted_count = 0
       local linked_count = 0
+      local failed_count = 0
+      local failed_msgs = {}
 
       for key, seg in pairs(desired) do
         local filename = filename_for_segment(prefix, seg, pad_tag)
@@ -1039,6 +1051,8 @@ local function run_watch_job()
           if ok_syn then
             generated_count = generated_count + 1
           else
+            failed_count = failed_count + 1
+            table.insert(failed_msgs, tostring(syn_err))
             log_line("synthesis failed key=" .. key .. " / " .. tostring(syn_err))
           end
         end
@@ -1107,6 +1121,17 @@ local function run_watch_job()
             missing_cycles[key] = 0
           end
         end
+      end
+
+      if failed_count > 0 then
+        local msg = string.format("音声の生成に失敗しました (%d 件):\n\n", failed_count)
+        for j = 1, math.min(5, #failed_msgs) do
+          msg = msg .. failed_msgs[j] .. "\n"
+        end
+        if #failed_msgs > 5 then
+          msg = msg .. "... 他 " .. (#failed_msgs - 5) .. " 件"
+        end
+        alert_mac("Resolve VOICEVOX - 合成エラー", msg)
       end
 
       if generated_count > 0 or placed_count > 0 or deleted_count > 0 then
