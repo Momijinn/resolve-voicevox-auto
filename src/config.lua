@@ -64,6 +64,7 @@ local function serialize_config(cfg)
     string.format('    watch_stop_file = "%s",', escape_lua_string(rt.watch_stop_file or "./watch.stop")),
     string.format('    watch_lock_file = "%s",', escape_lua_string(rt.watch_lock_file or "./watch.lock")),
     string.format('    managed_clip_prefix = "%s",', escape_lua_string(rt.managed_clip_prefix or "vvauto")),
+    string.format("    link_clips = %s,", rt.link_clips and "true" or "false"),
     "  },",
     "}",
     "",
@@ -101,6 +102,7 @@ local function load_or_default_config(config_path)
         watch_stop_file = "./watch.stop",
         watch_lock_file = "./watch.lock",
         managed_clip_prefix = "vvauto",
+        link_clips = false,
       },
     }
   end
@@ -576,6 +578,7 @@ local function main()
       ui:HGroup { ui:Label { Text = "watch_stop_file", Weight = 0.35 }, ui:LineEdit { ID = "watch_stop_file", Weight = 0.65 } },
       ui:HGroup { ui:Label { Text = "watch_lock_file", Weight = 0.35 }, ui:LineEdit { ID = "watch_lock_file", Weight = 0.65 } },
       ui:HGroup { ui:Label { Text = "managed_clip_prefix", Weight = 0.35 }, ui:LineEdit { ID = "managed_clip_prefix", Weight = 0.65 } },
+      ui:HGroup { ui:Label { Text = "link_clips", Weight = 0.35 }, ui:CheckBox { ID = "link_clips", Weight = 0.65, Text = "Link Text+ and audio clips" } },
     },
 
     ui:HGroup {
@@ -690,6 +693,7 @@ local function main()
     items.watch_stop_file.Text = tostring(rt.watch_stop_file or "./watch.stop")
     items.watch_lock_file.Text = tostring(rt.watch_lock_file or "./watch.lock")
     items.managed_clip_prefix.Text = tostring(rt.managed_clip_prefix or "vvauto")
+    items.link_clips.Checked = rt.link_clips == true
 
     local speaker_ok, speaker_err = refresh_speakers(false)
     if docker_ok and speaker_ok then
@@ -731,6 +735,7 @@ local function main()
         watch_stop_file = trim(items.watch_stop_file.Text),
         watch_lock_file = trim(items.watch_lock_file.Text),
         managed_clip_prefix = trim(items.managed_clip_prefix.Text),
+        link_clips = items.link_clips.Checked == true,
       },
     }
   end
@@ -826,6 +831,7 @@ local function main()
     items.watch_stop_file.Text = tostring(rt.watch_stop_file or "./watch.stop")
     items.watch_lock_file.Text = tostring(rt.watch_lock_file or "./watch.lock")
     items.managed_clip_prefix.Text = tostring(rt.managed_clip_prefix or "vvauto")
+    items.link_clips.Checked = rt.link_clips == true
 
     refresh_speakers(false)
 

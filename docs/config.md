@@ -58,3 +58,4 @@ DaVinci Resolve のタイムライン操作に関する設定です。
 | `watch_stop_file` | string | `"./watch.stop"` | このパスにファイルが存在すると自動監視を停止します（`stop_watch.lua` が作成します） |
 | `watch_lock_file` | string | `"./watch.lock"` | 二重起動を防ぐためのロックファイルのパス |
 | `managed_clip_prefix` | string | `"vvauto"` | スクリプトが管理するクリップを識別するための名前プレフィックス。このプレフィックスが付いたクリップのみ自動更新・削除の対象になります |
+| `link_clips` | boolean | `false` | `true` にすると Text+ クリップと配置した音声クリップをリンクします |

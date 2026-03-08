@@ -890,6 +890,24 @@ local function run_main_job()
     return 1
   end
 
+  -- プログレスウィンドウ（fusion UI が使えない環境では nil のまま処理を続行）
+  -- シングルスレッド Lua のため Process() は呼ばず、表示のみ
+  local prog_fusion
+  pcall(function() prog_fusion = r:Fusion() end)
+  local ui_disp, prog_win
+  if prog_fusion and prog_fusion.UIManager and bmd and bmd.UIDispatcher then
+    local pui = prog_fusion.UIManager
+    ui_disp = bmd.UIDispatcher(pui)
+    prog_win = ui_disp:AddWindow({
+      ID = "VVProgressWin",
+      WindowTitle = "Resolve VOICEVOX - 処理中",
+      Geometry = { 300, 300, 420, 90 },
+    }, pui:VGroup {
+      Spacing = 8,
+      pui:Label { ID = "prog_label", Text = "セグメントを取得中...", Alignment = { AlignHCenter = true } },
+    })
+  end
+
   local base_dir, base_dir_err = resolve_output_dir(script_dir, output_dir_raw)
   if not base_dir then
     log_line("出力先の解決に失敗: " .. tostring(base_dir_err))
@@ -931,15 +949,27 @@ local function run_main_job()
 
   log_line("テキストセグメント数: " .. tostring(#segments))
 
+  if prog_win then
+    local itm = prog_win:GetItems()
+    itm.prog_label.Text = string.format("処理中 0 / %d", #segments)
+    prog_win:Show()
+  end
+
   local placed = 0
   local syn_errors = {}
   local pad_tag = padding_tag(rt.audio_padding_sec or 0)
   for i, seg in ipairs(segments) do
+    if prog_win then
+      local itm = prog_win:GetItems()
+      itm.prog_label.Text = string.format("処理中 %d / %d", i, #segments)
+    end
     local filename = string.format("%04d_%08d_%s.wav", i, seg.start_frame, pad_tag)
     local wav_path = output_dir .. "/" .. filename
+    local file_existed = exists(wav_path)
+    local was_synthesized = false
     local generated_ok = true
 
-    if rt.overwrite or (not exists(wav_path)) then
+    if rt.overwrite or not file_existed then
       log_line("[処理] 合成開始: " .. filename)
       local ok_call, syn_ok, syn_err = pcall(synthesize_wav, vcfg, seg.text, wav_path, rt.audio_padding_sec or 0)
       if not ok_call then
@@ -951,6 +981,7 @@ local function run_main_job()
         log_line("[失敗] 生成に失敗: " .. filename .. " / " .. tostring(syn_err))
         table.insert(syn_errors, filename .. ": " .. tostring(syn_err))
       else
+        was_synthesized = true
         log_line("[生成] " .. filename)
       end
     else
@@ -958,23 +989,46 @@ local function run_main_job()
     end
 
     if generated_ok then
-      local ok_place, placed_item = import_and_place(media_pool, timeline, wav_path, seg.start_frame, rcfg.text_track_index or 1)
-      if ok_place then
-        placed = placed + 1
-        log_line(string.format("[配置] frame=%d track=%d file=%s", seg.start_frame, tonumber(rcfg.text_track_index or 1), filename))
-
-        if seg.timeline_item then
-          local linked, lerr = try_link_timeline_items(timeline, seg.timeline_item, placed_item)
-          if linked then
-            log_line("[リンク] text/audio linked: " .. filename)
-          else
-            log_line("[リンク] skip: " .. tostring(lerr))
-          end
+      local audio_track = tonumber(rcfg.text_track_index or 1)
+      -- WAVを新規生成・上書き生成した場合: 同位置の既存クリップを削除してから配置
+      -- WAVを再利用した場合: 同位置に既にクリップがあればスキップ（重複配置防止）
+      local existing_clip = find_audio_item_on_track(timeline, audio_track, seg.start_frame, filename)
+      local should_place
+      if was_synthesized then
+        if existing_clip then
+          pcall(function() timeline:DeleteClips({existing_clip}, false) end)
         end
+        should_place = true
       else
-        log_line("[失敗] 配置に失敗: " .. filename)
+        should_place = (existing_clip == nil)
+        if not should_place then
+          log_line("[スキップ] 配置済み: " .. filename)
+        end
+      end
+
+      if should_place then
+        local ok_place, placed_item = import_and_place(media_pool, timeline, wav_path, seg.start_frame, audio_track)
+        if ok_place then
+          placed = placed + 1
+          log_line(string.format("[配置] frame=%d track=%d file=%s", seg.start_frame, audio_track, filename))
+
+          if rt.link_clips and seg.timeline_item and placed_item then
+            local linked, lerr = try_link_timeline_items(timeline, seg.timeline_item, placed_item)
+            if linked then
+              log_line("[リンク] text/audio linked: " .. filename)
+            else
+              log_line("[リンク] skip: " .. tostring(lerr))
+            end
+          end
+        else
+          log_line("[失敗] 配置に失敗: " .. filename)
+        end
       end
     end
+  end
+
+  if prog_win then
+    prog_win:Hide()
   end
 
   if #syn_errors > 0 then

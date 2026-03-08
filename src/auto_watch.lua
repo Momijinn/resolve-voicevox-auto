@@ -1041,6 +1041,15 @@ local function run_watch_job()
 
       local existing, duplicates = collect_existing_managed_audio(timeline, tonumber(rcfg.text_track_index or 1), prefix)
 
+      -- start_frame ベースのインデックス（テキスト変更で同位置の旧クリップを即座に置換するため）
+      local existing_by_frame = {}
+      for k, ex_item in pairs(existing) do
+        local frame_str = k:match("^(%d+)_")
+        if frame_str then
+          existing_by_frame[tonumber(frame_str)] = { key = k, item = ex_item }
+        end
+      end
+
       local generated_count = 0
       local placed_count = 0
       local deleted_count = 0
@@ -1072,7 +1081,26 @@ local function run_watch_job()
           os.execute("cp " .. shell_quote(cache_path) .. " " .. shell_quote(wav_path))
         end
 
-        if not existing[key] and exists(wav_path) then
+        -- 配置要否の判定:
+        --   overwrite=true かつ既存キーあり → 旧クリップ削除して再配置
+        --   同位置にテキスト変更後の旧キークリップあり → 削除して新規配置
+        --   未配置 → 配置
+        local need_replace = rt.overwrite and (existing[key] ~= nil)
+        local need_place   = not existing[key]
+
+        if (need_place or need_replace) and exists(wav_path) then
+          if need_replace and existing[key] then
+            pcall(function() timeline:DeleteClips({existing[key]}, false) end)
+            existing[key] = nil
+          end
+          if need_place then
+            local old_at_frame = existing_by_frame[seg.start_frame]
+            if old_at_frame and old_at_frame.key ~= key then
+              pcall(function() timeline:DeleteClips({old_at_frame.item}, false) end)
+              existing[old_at_frame.key] = nil
+              missing_cycles[old_at_frame.key] = 0
+            end
+          end
           local ok_place = import_and_place(media_pool, wav_path, seg.start_frame, tonumber(rcfg.text_track_index or 1))
           if ok_place then
             placed_count = placed_count + 1
@@ -1082,8 +1110,8 @@ local function run_watch_job()
         end
       end
 
-      -- リンクパス: 配置済み・新規問わず全セグメントの字幕と音声をリンク
-      do
+      -- リンクパス: 配置済み・新規問わず全セグメントの Text+ と音声をリンク（link_clips が true のときのみ）
+      if rt.link_clips then
         local all_audio = collect_existing_managed_audio(timeline, tonumber(rcfg.text_track_index or 1), prefix)
         for key, seg in pairs(desired) do
           local audio_item = all_audio[key]
