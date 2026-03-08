@@ -59,6 +59,14 @@ local function ensure_dir(path)
   return execute_ok(os.execute("mkdir -p " .. shell_quote(path)))
 end
 
+local function alert_mac(title, message)
+  local t = tostring(title or "Resolve VOICEVOX")
+  local m = tostring(message or "")
+  local script = string.format('display dialog "%s" with title "%s" buttons {"OK"} default button "OK" with icon stop',
+    m:gsub('"', '\\"'), t:gsub('"', '\\"'))
+  os.execute("/usr/bin/osascript -e " .. shell_quote(script))
+end
+
 local function resolve_path(base_dir, value)
   if not value or value == "" then
     return value
@@ -620,50 +628,61 @@ local function synthesize_wav(vcfg, text, out_wav, audio_padding_sec)
   return true, nil
 end
 
-local function get_subtitle_segments_from_timeline(timeline, subtitle_track_index, text_keys)
-  if not timeline then return {}, "timeline is nil" end
-  local function get_track_items(track_type, track_index)
-    local methods = {
-      function() return timeline:GetItemListInTrack(track_type, track_index) end,
-      function() return timeline.GetItemListInTrack and timeline.GetItemListInTrack(timeline, track_type, track_index) end,
-      function() return timeline:GetItemsInTrack(track_type, track_index) end,
-      function() return timeline.GetItemsInTrack and timeline.GetItemsInTrack(timeline, track_type, track_index) end,
-    }
+local function get_text_from_video_clip(item)
+  -- Text+ (Fusion コンポジション) のみ対応。
+  -- プレーン「テキスト」ジェネレーターはスクリプト API でテキストを読み取れないためスキップ。
+  local ok_cnt, comp_count = pcall(function() return item:GetFusionCompCount() end)
+  if not (ok_cnt and tonumber(comp_count) and tonumber(comp_count) > 0) then
+    return nil
+  end
 
+  local ok_cc, comp = pcall(function() return item:GetFusionCompByIndex(1) end)
+  if not (ok_cc and comp) then return nil end
+
+  local ok_tl, tools = pcall(function() return comp:GetToolList(false) end)
+  if not (ok_tl and tools) then return nil end
+
+  for _, tool in pairs(tools) do
+    for _, input_key in ipairs({ "StyledText", "Text" }) do
+      local ok_ti, val = pcall(function() return tool:GetInput(input_key) end)
+      if ok_ti and type(val) == "string" and #trim(val) > 0 then
+        return trim(val)
+      end
+    end
+  end
+
+  return nil
+end
+
+local function get_text_segments_from_video_track(timeline, track_index)
+  if not timeline then return {} end
+
+  local function get_track_items(tidx)
+    local methods = {
+      function() return timeline:GetItemListInTrack("video", tidx) end,
+      function() return timeline.GetItemListInTrack and timeline.GetItemListInTrack(timeline, "video", tidx) end,
+      function() return timeline:GetItemsInTrack("video", tidx) end,
+    }
     for _, m in ipairs(methods) do
       local ok, result = pcall(m)
-      if ok and result then
-        return result
-      end
+      if ok and result then return result end
     end
     return nil
   end
 
   local segments = {}
-  local items = get_track_items("subtitle", subtitle_track_index)
+  local items = get_track_items(track_index)
   if not items then return segments end
 
   for _, item in ipairs(items) do
-    local text = nil
-    for _, key in ipairs(text_keys) do
-      if key == "Name" then
-        local name = item:GetName()
-        if name and #trim(name) > 0 then
-          text = trim(name)
-          break
-        end
-      else
-        local ok, prop = pcall(function() return item:GetProperty(key) end)
-        if ok and prop and tostring(prop) ~= "" then
-          text = trim(tostring(prop))
-          break
-        end
-      end
-    end
-
+    local text = get_text_from_video_clip(item)
     if text and #text > 0 then
       local start_frame = tonumber(item:GetStart()) or 0
-      table.insert(segments, { text = text, start_frame = start_frame, timeline_item = item })
+      table.insert(segments, {
+        text         = text,
+        start_frame  = start_frame,
+        timeline_item = item,
+      })
     end
   end
 
@@ -740,16 +759,13 @@ local function get_clip_name_candidates(item)
 end
 
 local function import_and_place(media_pool, wav_path, start_frame, audio_track_index)
-  -- 現在のフォルダを保存し、"voicevox" ビンを取得または作成してからインポート
-  local original_folder = nil
-  local ok_gf, cur_folder = pcall(function() return media_pool:GetCurrentFolder() end)
-  if ok_gf and cur_folder then
-    original_folder = cur_folder
-  end
+  -- 常にルート直下の "voicevox" ビンを検索・作成してネストを防ぐ
+  local root_folder = nil
+  pcall(function() root_folder = media_pool:GetRootFolder() end)
 
   local target_bin = nil
-  if original_folder then
-    local ok_sf, subfolders = pcall(function() return original_folder:GetSubFolderList() end)
+  if root_folder then
+    local ok_sf, subfolders = pcall(function() return root_folder:GetSubFolderList() end)
     if ok_sf and type(subfolders) == "table" then
       for _, sf in ipairs(subfolders) do
         local ok_n, n = pcall(function() return sf:GetName() end)
@@ -760,14 +776,19 @@ local function import_and_place(media_pool, wav_path, start_frame, audio_track_i
       end
     end
     if not target_bin then
-      local ok_add, new_bin = pcall(function() return media_pool:AddSubFolder(original_folder, "voicevox") end)
+      local ok_add, new_bin = pcall(function() return media_pool:AddSubFolder(root_folder, "voicevox") end)
       if ok_add and new_bin then
         target_bin = new_bin
       end
     end
-    if target_bin then
-      pcall(function() media_pool:SetCurrentFolder(target_bin) end)
-    end
+  end
+
+  local original_folder = nil
+  local ok_gf, cur_folder = pcall(function() return media_pool:GetCurrentFolder() end)
+  if ok_gf and cur_folder then original_folder = cur_folder end
+
+  if target_bin then
+    pcall(function() media_pool:SetCurrentFolder(target_bin) end)
   end
 
   local imported = media_pool:ImportMedia({ wav_path })
@@ -909,40 +930,42 @@ local function run_watch_job()
   local health = run_capture("curl -sS " .. shell_quote((vcfg.base_url or "http://127.0.0.1:50021") .. "/version"))
   if not health or #trim(health) == 0 then
     log_line("VOICEVOX Engine に接続できません。")
+    alert_mac("Resolve VOICEVOX - エラー", "VOICEVOX Engine に接続できません。\nbase_url を確認してください。")
     return 1
   end
 
   local resolve_obj = resolve or (Resolve and Resolve())
   if not resolve_obj then
     log_line("Resolve APIへの接続に失敗しました。")
+    alert_mac("Resolve VOICEVOX - エラー", "Resolve API への接続に失敗しました。")
     return 1
   end
 
   local project = safe_get_current_project(resolve_obj)
   if not project then
     log_line("現在のプロジェクトが見つかりません。")
+    alert_mac("Resolve VOICEVOX - エラー", "現在のプロジェクトが見つかりません。")
     return 1
   end
 
   local base_dir, base_dir_err = resolve_output_dir(script_dir, output_dir_raw)
   if not base_dir then
     log_line("出力先の解決に失敗: " .. tostring(base_dir_err))
+    alert_mac("Resolve VOICEVOX - 出力先エラー", tostring(base_dir_err))
     return 1
   end
 
   if not is_dir(base_dir) then
+    local msg = "出力先フォルダが存在しません:\n" .. tostring(base_dir) .. "\n\n存在するフォルダを output_dir に指定してください。"
     log_line("出力先フォルダが存在しません: " .. tostring(base_dir))
+    alert_mac("Resolve VOICEVOX - 出力先エラー", msg)
     return 1
   end
 
-  local output_dir = base_dir .. "/voicevox"
-  if not ensure_dir(output_dir) then
-    log_line("voicevox フォルダの作成に失敗: " .. tostring(output_dir))
-    return 1
-  end
+  local output_dir = base_dir
   log_line("output_dir=" .. tostring(output_dir))
 
-  log_line("start auto watch interval=" .. tostring(interval_sec) .. "s track=" .. tostring(rcfg.audio_track_index or 1))
+  log_line("start auto watch interval=" .. tostring(interval_sec) .. "s track=" .. tostring(rcfg.text_track_index or 1))
   log_line("stable cycles required=" .. tostring(stable_cycles_required))
   log_line("delete grace cycles=" .. tostring(delete_grace_cycles))
   log_line("stop file: " .. tostring(stop_file))
@@ -990,10 +1013,9 @@ local function run_watch_job()
 
       timeline_unavailable_logged = false
 
-      local segments = get_subtitle_segments_from_timeline(
+      local segments = get_text_segments_from_video_track(
         timeline,
-        tonumber(rcfg.subtitle_track_index or 1),
-        rcfg.subtitle_text_property_candidates or { "Text", "StyledText", "Name" }
+        tonumber(rcfg.text_track_index or 1)
       )
 
       local desired = {}
@@ -1006,7 +1028,7 @@ local function run_watch_job()
       if signature ~= last_signature then
         last_signature = signature
         stable_cycles = 1
-        log_line("detected subtitle change. waiting stabilize...")
+        log_line("detected text change. waiting stabilize...")
         return
       end
 
@@ -1019,12 +1041,23 @@ local function run_watch_job()
         return
       end
 
-      local existing, duplicates = collect_existing_managed_audio(timeline, tonumber(rcfg.audio_track_index or 1), prefix)
+      local existing, duplicates = collect_existing_managed_audio(timeline, tonumber(rcfg.text_track_index or 1), prefix)
+
+      -- start_frame ベースのインデックス（テキスト変更で同位置の旧クリップを即座に置換するため）
+      local existing_by_frame = {}
+      for k, ex_item in pairs(existing) do
+        local frame_str = k:match("^(%d+)_")
+        if frame_str then
+          existing_by_frame[tonumber(frame_str)] = { key = k, item = ex_item }
+        end
+      end
 
       local generated_count = 0
       local placed_count = 0
       local deleted_count = 0
       local linked_count = 0
+      local failed_count = 0
+      local failed_msgs = {}
 
       for key, seg in pairs(desired) do
         local filename = filename_for_segment(prefix, seg, pad_tag)
@@ -1039,6 +1072,8 @@ local function run_watch_job()
           if ok_syn then
             generated_count = generated_count + 1
           else
+            failed_count = failed_count + 1
+            table.insert(failed_msgs, tostring(syn_err))
             log_line("synthesis failed key=" .. key .. " / " .. tostring(syn_err))
           end
         end
@@ -1048,8 +1083,27 @@ local function run_watch_job()
           os.execute("cp " .. shell_quote(cache_path) .. " " .. shell_quote(wav_path))
         end
 
-        if not existing[key] and exists(wav_path) then
-          local ok_place = import_and_place(media_pool, wav_path, seg.start_frame, tonumber(rcfg.audio_track_index or 1))
+        -- 配置要否の判定:
+        --   overwrite=true かつ既存キーあり → 旧クリップ削除して再配置
+        --   同位置にテキスト変更後の旧キークリップあり → 削除して新規配置
+        --   未配置 → 配置
+        local need_replace = rt.overwrite and (existing[key] ~= nil)
+        local need_place   = not existing[key]
+
+        if (need_place or need_replace) and exists(wav_path) then
+          if need_replace and existing[key] then
+            pcall(function() timeline:DeleteClips({existing[key]}, false) end)
+            existing[key] = nil
+          end
+          if need_place then
+            local old_at_frame = existing_by_frame[seg.start_frame]
+            if old_at_frame and old_at_frame.key ~= key then
+              pcall(function() timeline:DeleteClips({old_at_frame.item}, false) end)
+              existing[old_at_frame.key] = nil
+              missing_cycles[old_at_frame.key] = 0
+            end
+          end
+          local ok_place = import_and_place(media_pool, wav_path, seg.start_frame, tonumber(rcfg.text_track_index or 1))
           if ok_place then
             placed_count = placed_count + 1
           else
@@ -1058,9 +1112,9 @@ local function run_watch_job()
         end
       end
 
-      -- リンクパス: 配置済み・新規問わず全セグメントの字幕と音声をリンク
-      do
-        local all_audio = collect_existing_managed_audio(timeline, tonumber(rcfg.audio_track_index or 1), prefix)
+      -- リンクパス: 配置済み・新規問わず全セグメントの Text+ と音声をリンク（link_clips が true のときのみ）
+      if rt.link_clips then
+        local all_audio = collect_existing_managed_audio(timeline, tonumber(rcfg.text_track_index or 1), prefix)
         for key, seg in pairs(desired) do
           local audio_item = all_audio[key]
           if seg.timeline_item and audio_item then
@@ -1109,10 +1163,21 @@ local function run_watch_job()
         end
       end
 
+      if failed_count > 0 then
+        local msg = string.format("音声の生成に失敗しました (%d 件):\n\n", failed_count)
+        for j = 1, math.min(5, #failed_msgs) do
+          msg = msg .. failed_msgs[j] .. "\n"
+        end
+        if #failed_msgs > 5 then
+          msg = msg .. "... 他 " .. (#failed_msgs - 5) .. " 件"
+        end
+        alert_mac("Resolve VOICEVOX - 合成エラー", msg)
+      end
+
       if generated_count > 0 or placed_count > 0 or deleted_count > 0 then
-        log_line(string.format("synced generated=%d placed=%d linked=%d deleted=%d subtitles=%d", generated_count, placed_count, linked_count, deleted_count, #segments))
+        log_line(string.format("synced generated=%d placed=%d linked=%d deleted=%d segments=%d", generated_count, placed_count, linked_count, deleted_count, #segments))
       else
-        log_line(string.format("synced no-op subtitles=%d", #segments))
+        log_line(string.format("synced no-op segments=%d", #segments))
       end
 
       applied_signature = signature

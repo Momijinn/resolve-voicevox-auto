@@ -33,12 +33,6 @@ local function serialize_config(cfg)
   local vv = cfg.voicevox or {}
   local rs = cfg.resolve or {}
   local rt = cfg.runtime or {}
-  local keys = rs.subtitle_text_property_candidates or { "Text", "StyledText", "Name" }
-
-  local key_items = {}
-  for _, k in ipairs(keys) do
-    table.insert(key_items, string.format('"%s"', escape_lua_string(k)))
-  end
 
   local lines = {
     "return {",
@@ -56,9 +50,7 @@ local function serialize_config(cfg)
     "  },",
     "",
     "  resolve = {",
-    string.format("    audio_track_index = %d,", math.floor(to_number(rs.audio_track_index, 1))),
-    string.format("    subtitle_track_index = %d,", math.floor(to_number(rs.subtitle_track_index, 1))),
-    string.format("    subtitle_text_property_candidates = { %s },", table.concat(key_items, ", ")),
+    string.format("    text_track_index = %d,", math.floor(to_number(rs.text_track_index, 1))),
     "  },",
     "",
     "  runtime = {",
@@ -72,6 +64,7 @@ local function serialize_config(cfg)
     string.format('    watch_stop_file = "%s",', escape_lua_string(rt.watch_stop_file or "./watch.stop")),
     string.format('    watch_lock_file = "%s",', escape_lua_string(rt.watch_lock_file or "./watch.lock")),
     string.format('    managed_clip_prefix = "%s",', escape_lua_string(rt.managed_clip_prefix or "vvauto")),
+    string.format("    link_clips = %s,", rt.link_clips and "true" or "false"),
     "  },",
     "}",
     "",
@@ -96,9 +89,7 @@ local function load_or_default_config(config_path)
         output_stereo = true,
       },
       resolve = {
-        audio_track_index = 1,
-        subtitle_track_index = 1,
-        subtitle_text_property_candidates = { "Text", "StyledText", "Name" },
+        text_track_index = 1,
       },
       runtime = {
         output_dir = "",
@@ -111,6 +102,7 @@ local function load_or_default_config(config_path)
         watch_stop_file = "./watch.stop",
         watch_lock_file = "./watch.lock",
         managed_clip_prefix = "vvauto",
+        link_clips = false,
       },
     }
   end
@@ -561,9 +553,7 @@ local function main()
       Weight = 0,
       Spacing = 4,
       ui:Label { Text = "Resolve" },
-      ui:HGroup { ui:Label { Text = "audio_track_index", Weight = 0.35 }, ui:LineEdit { ID = "audio_track_index", Weight = 0.65 } },
-      ui:HGroup { ui:Label { Text = "subtitle_track_index", Weight = 0.35 }, ui:LineEdit { ID = "subtitle_track_index", Weight = 0.65 } },
-      ui:HGroup { ui:Label { Text = "subtitle_text_keys (comma)", Weight = 0.35 }, ui:LineEdit { ID = "subtitle_text_keys", Weight = 0.65 } },
+      ui:HGroup { ui:Label { Text = "text_track_index", Weight = 0.35 }, ui:LineEdit { ID = "text_track_index", Weight = 0.65 } },
     },
 
     ui:VGroup {
@@ -588,6 +578,7 @@ local function main()
       ui:HGroup { ui:Label { Text = "watch_stop_file", Weight = 0.35 }, ui:LineEdit { ID = "watch_stop_file", Weight = 0.65 } },
       ui:HGroup { ui:Label { Text = "watch_lock_file", Weight = 0.35 }, ui:LineEdit { ID = "watch_lock_file", Weight = 0.65 } },
       ui:HGroup { ui:Label { Text = "managed_clip_prefix", Weight = 0.35 }, ui:LineEdit { ID = "managed_clip_prefix", Weight = 0.65 } },
+      ui:HGroup { ui:Label { Text = "link_clips", Weight = 0.35 }, ui:CheckBox { ID = "link_clips", Weight = 0.65, Text = "Link Text+ and audio clips" } },
     },
 
     ui:HGroup {
@@ -690,9 +681,7 @@ local function main()
     items.sample_rate.Text = tostring(vv.sample_rate or 48000)
     items.output_stereo.Checked = vv.output_stereo ~= false
 
-    items.audio_track_index.Text = tostring(rs.audio_track_index or 1)
-    items.subtitle_track_index.Text = tostring(rs.subtitle_track_index or 1)
-    items.subtitle_text_keys.Text = table.concat(rs.subtitle_text_property_candidates or { "Text", "StyledText", "Name" }, ",")
+    items.text_track_index.Text = tostring(rs.text_track_index or 1)
 
     items.output_dir.Text = tostring(rt.output_dir or "")
     items.log_path.Text = tostring(rt.log_path or "./run.log")
@@ -704,6 +693,7 @@ local function main()
     items.watch_stop_file.Text = tostring(rt.watch_stop_file or "./watch.stop")
     items.watch_lock_file.Text = tostring(rt.watch_lock_file or "./watch.lock")
     items.managed_clip_prefix.Text = tostring(rt.managed_clip_prefix or "vvauto")
+    items.link_clips.Checked = rt.link_clips == true
 
     local speaker_ok, speaker_err = refresh_speakers(false)
     if docker_ok and speaker_ok then
@@ -732,9 +722,7 @@ local function main()
         output_stereo = items.output_stereo.Checked == true,
       },
       resolve = {
-        audio_track_index = to_number(items.audio_track_index.Text, 1),
-        subtitle_track_index = to_number(items.subtitle_track_index.Text, 1),
-        subtitle_text_property_candidates = split_csv(items.subtitle_text_keys.Text),
+        text_track_index = to_number(items.text_track_index.Text, 1),
       },
       runtime = {
         output_dir = trim(items.output_dir.Text),
@@ -747,6 +735,7 @@ local function main()
         watch_stop_file = trim(items.watch_stop_file.Text),
         watch_lock_file = trim(items.watch_lock_file.Text),
         managed_clip_prefix = trim(items.managed_clip_prefix.Text),
+        link_clips = items.link_clips.Checked == true,
       },
     }
   end
@@ -830,9 +819,7 @@ local function main()
     items.sample_rate.Text = tostring(vv.sample_rate or 48000)
     items.output_stereo.Checked = vv.output_stereo ~= false
 
-    items.audio_track_index.Text = tostring(rs.audio_track_index or 1)
-    items.subtitle_track_index.Text = tostring(rs.subtitle_track_index or 1)
-    items.subtitle_text_keys.Text = table.concat(rs.subtitle_text_property_candidates or { "Text", "StyledText", "Name" }, ",")
+    items.text_track_index.Text = tostring(rs.text_track_index or 1)
 
     items.output_dir.Text = tostring(rt.output_dir or "")
     items.log_path.Text = tostring(rt.log_path or "./run.log")
@@ -844,6 +831,7 @@ local function main()
     items.watch_stop_file.Text = tostring(rt.watch_stop_file or "./watch.stop")
     items.watch_lock_file.Text = tostring(rt.watch_lock_file or "./watch.lock")
     items.managed_clip_prefix.Text = tostring(rt.managed_clip_prefix or "vvauto")
+    items.link_clips.Checked = rt.link_clips == true
 
     refresh_speakers(false)
 

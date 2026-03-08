@@ -37,9 +37,8 @@ DaVinci Resolve のタイムライン操作に関する設定です。
 
 | キー | 型 | デフォルト | 説明 |
 |---|---|---|---|
+| `text_track_index` | number | `1` | **Text+** クリップを読み取るビデオトラックの番号（1 始まり） |
 | `audio_track_index` | number | `1` | 音声クリップを配置するオーディオトラックの番号（1 始まり） |
-| `subtitle_track_index` | number | `1` | 字幕テキストを読み取るビデオトラックの番号（1 始まり） |
-| `subtitle_text_property_candidates` | string[] | `{ "Text", "StyledText", "Name" }` | テキストクリップからテキストを取得する際に試みるプロパティ名の一覧。先頭から順に試し、値が取れた時点で使用します |
 
 ---
 
@@ -59,3 +58,4 @@ DaVinci Resolve のタイムライン操作に関する設定です。
 | `watch_stop_file` | string | `"./watch.stop"` | このパスにファイルが存在すると自動監視を停止します（`stop_watch.lua` が作成します） |
 | `watch_lock_file` | string | `"./watch.lock"` | 二重起動を防ぐためのロックファイルのパス |
 | `managed_clip_prefix` | string | `"vvauto"` | スクリプトが管理するクリップを識別するための名前プレフィックス。このプレフィックスが付いたクリップのみ自動更新・削除の対象になります |
+| `link_clips` | boolean | `false` | `true` にすると Text+ クリップと配置した音声クリップをリンクします |

@@ -579,32 +579,47 @@ local function get_resolve()
   return nil
 end
 
-local function get_subtitle_segments_from_timeline(timeline, subtitle_track_index, text_keys)
+local function get_text_from_video_clip(item)
+  -- Text+ (Fusion コンポジション) のみ対応。
+  -- プレーン「テキスト」ジェネレーターはスクリプト API でテキストを読み取れないためスキップ。
+  local ok_cnt, comp_count = pcall(function() return item:GetFusionCompCount() end)
+  if not (ok_cnt and tonumber(comp_count) and tonumber(comp_count) > 0) then
+    return nil
+  end
+
+  local ok_cc, comp = pcall(function() return item:GetFusionCompByIndex(1) end)
+  if not (ok_cc and comp) then return nil end
+
+  local ok_tl, tools = pcall(function() return comp:GetToolList(false) end)
+  if not (ok_tl and tools) then return nil end
+
+  for _, tool in pairs(tools) do
+    for _, input_key in ipairs({ "StyledText", "Text" }) do
+      local ok_ti, val = pcall(function() return tool:GetInput(input_key) end)
+      if ok_ti and type(val) == "string" and #trim(val) > 0 then
+        return trim(val)
+      end
+    end
+  end
+
+  return nil
+end
+
+local function get_text_segments_from_video_track(timeline, track_index)
+  if not timeline then return {} end
   local segments = {}
-  local items = timeline:GetItemListInTrack("subtitle", subtitle_track_index)
+  local items = timeline:GetItemListInTrack("video", track_index)
   if not items then return segments end
 
   for _, item in ipairs(items) do
-    local text = nil
-    for _, key in ipairs(text_keys) do
-      if key == "Name" then
-        local name = item:GetName()
-        if name and #trim(name) > 0 then
-          text = trim(name)
-          break
-        end
-      else
-        local ok, prop = pcall(function() return item:GetProperty(key) end)
-        if ok and prop and tostring(prop) ~= "" then
-          text = trim(tostring(prop))
-          break
-        end
-      end
-    end
-
+    local text = get_text_from_video_clip(item)
     if text and #text > 0 then
       local start_frame = tonumber(item:GetStart()) or 0
-      table.insert(segments, { text = text, start_frame = start_frame, timeline_item = item })
+      table.insert(segments, {
+        text          = text,
+        start_frame   = start_frame,
+        timeline_item = item,
+      })
     end
   end
 
@@ -801,6 +816,38 @@ local function synthesize_wav(vcfg, text, out_wav, audio_padding_sec)
 end
 
 local function import_and_place(media_pool, timeline, wav_path, start_frame, audio_track_index)
+  -- 常にルート直下の "voicevox" ビンを検索・作成してネストを防ぐ
+  local root_folder = nil
+  pcall(function() root_folder = media_pool:GetRootFolder() end)
+
+  local target_bin = nil
+  if root_folder then
+    local ok_sf, subfolders = pcall(function() return root_folder:GetSubFolderList() end)
+    if ok_sf and type(subfolders) == "table" then
+      for _, sf in ipairs(subfolders) do
+        local ok_n, n = pcall(function() return sf:GetName() end)
+        if ok_n and n == "voicevox" then
+          target_bin = sf
+          break
+        end
+      end
+    end
+    if not target_bin then
+      local ok_add, new_bin = pcall(function() return media_pool:AddSubFolder(root_folder, "voicevox") end)
+      if ok_add and new_bin then
+        target_bin = new_bin
+      end
+    end
+  end
+
+  local original_folder = nil
+  local ok_gf, cur_folder = pcall(function() return media_pool:GetCurrentFolder() end)
+  if ok_gf and cur_folder then original_folder = cur_folder end
+
+  if target_bin then
+    pcall(function() media_pool:SetCurrentFolder(target_bin) end)
+  end
+
   local imported = media_pool:ImportMedia({ wav_path })
 
   if original_folder then
@@ -875,6 +922,24 @@ local function run_main_job()
     return 1
   end
 
+  -- プログレスウィンドウ（fusion UI が使えない環境では nil のまま処理を続行）
+  -- シングルスレッドのため表示のみ。Process() / キャンセルは使用しない
+  local prog_fusion
+  pcall(function() prog_fusion = r:Fusion() end)
+  local ui_disp, prog_win
+  if prog_fusion and prog_fusion.UIManager and bmd and bmd.UIDispatcher then
+    local pui = prog_fusion.UIManager
+    ui_disp = bmd.UIDispatcher(pui)
+    prog_win = ui_disp:AddWindow({
+      ID = "VVProgressWin",
+      WindowTitle = "Resolve VOICEVOX - 処理中",
+      Geometry = { 300, 300, 420, 90 },
+    }, pui:VGroup {
+      Spacing = 8,
+      pui:Label { ID = "prog_label", Text = "セグメントを取得中...", Alignment = { AlignHCenter = true } },
+    })
+  end
+
   local base_dir, base_dir_err = resolve_output_dir(script_dir, output_dir_raw)
   if not base_dir then
     log_line("出力先の解決に失敗: " .. tostring(base_dir_err))
@@ -903,37 +968,52 @@ local function run_main_job()
   local fps = tonumber(project:GetSetting("timelineFrameRate")) or 30
   log_line("timeline fps=" .. tostring(fps))
 
-  local segments = get_subtitle_segments_from_timeline(
+  local segments = get_text_segments_from_video_track(
     timeline,
-    tonumber(rcfg.subtitle_track_index),
-    rcfg.subtitle_text_property_candidates
+    tonumber(rcfg.text_track_index or 1)
   )
 
   if #segments == 0 then
-    log_line("字幕データが取得できませんでした。字幕トラック設定を確認してください。")
-    notify_mac("Resolve VOICEVOX", "字幕データが取得できません")
+    log_line("テキストクリップが取得できませんでした。text_track_index 設定を確認してください。")
+    notify_mac("Resolve VOICEVOX", "テキストクリップが取得できません")
     return 1
   end
 
-  log_line("字幕セグメント数: " .. tostring(#segments))
+  log_line("テキストセグメント数: " .. tostring(#segments))
+
+  if prog_win then
+    local itm = prog_win:GetItems()
+    itm.prog_label.Text = string.format("処理中 0 / %d", #segments)
+    prog_win:Show()
+  end
 
   local placed = 0
+  local syn_errors = {}
   local pad_tag = padding_tag(rt.audio_padding_sec or 0)
   for i, seg in ipairs(segments) do
+    if prog_win then
+      local itm = prog_win:GetItems()
+      itm.prog_label.Text = string.format("処理中 %d / %d", i, #segments)
+    end
     local filename = string.format("%04d_%08d_%s.wav", i, seg.start_frame, pad_tag)
     local wav_path = output_dir .. "/" .. filename
+    local file_existed = exists(wav_path)
+    local was_synthesized = false
     local generated_ok = true
 
-    if rt.overwrite or (not exists(wav_path)) then
+    if rt.overwrite or not file_existed then
       log_line("[処理] 合成開始: " .. filename)
       local ok_call, syn_ok, syn_err = pcall(synthesize_wav, vcfg, seg.text, wav_path, rt.audio_padding_sec or 0)
       if not ok_call then
         generated_ok = false
         log_line("[失敗] 合成処理で例外: " .. filename .. " / " .. tostring(syn_ok))
+        table.insert(syn_errors, filename .. ": " .. tostring(syn_ok))
       elseif not syn_ok then
         generated_ok = false
         log_line("[失敗] 生成に失敗: " .. filename .. " / " .. tostring(syn_err))
+        table.insert(syn_errors, filename .. ": " .. tostring(syn_err))
       else
+        was_synthesized = true
         log_line("[生成] " .. filename)
       end
     else
@@ -941,23 +1021,58 @@ local function run_main_job()
     end
 
     if generated_ok then
-      local ok_place, placed_item = import_and_place(media_pool, timeline, wav_path, seg.start_frame, rcfg.audio_track_index)
-      if ok_place then
-        placed = placed + 1
-        log_line(string.format("[配置] frame=%d track=%d file=%s", seg.start_frame, tonumber(rcfg.audio_track_index), filename))
-
-        if seg.timeline_item then
-          local linked, lerr = try_link_timeline_items(timeline, seg.timeline_item, placed_item)
-          if linked then
-            log_line("[リンク] subtitle/audio linked: " .. filename)
-          else
-            log_line("[リンク] skip: " .. tostring(lerr))
-          end
+      local audio_track = tonumber(rcfg.text_track_index or 1)
+      -- WAVを新規生成・上書き生成した場合: 同位置の既存クリップを削除してから配置
+      -- WAVを再利用した場合: 同位置に既にクリップがあればスキップ（重複配置防止）
+      local existing_clip = find_audio_item_on_track(timeline, audio_track, seg.start_frame, filename)
+      local should_place
+      if was_synthesized then
+        if existing_clip then
+          pcall(function() timeline:DeleteClips({existing_clip}, false) end)
         end
+        should_place = true
       else
-        log_line("[失敗] 配置に失敗: " .. filename)
+        should_place = (existing_clip == nil)
+        if not should_place then
+          log_line("[スキップ] 配置済み: " .. filename)
+        end
+      end
+
+      if should_place then
+        local ok_place, placed_item = import_and_place(media_pool, timeline, wav_path, seg.start_frame, audio_track)
+        if ok_place then
+          placed = placed + 1
+          log_line(string.format("[配置] frame=%d track=%d file=%s", seg.start_frame, audio_track, filename))
+
+          if rt.link_clips and seg.timeline_item and placed_item then
+            local linked, lerr = try_link_timeline_items(timeline, seg.timeline_item, placed_item)
+            if linked then
+              log_line("[リンク] text/audio linked: " .. filename)
+            else
+              log_line("[リンク] skip: " .. tostring(lerr))
+            end
+          end
+        else
+          log_line("[失敗] 配置に失敗: " .. filename)
+        end
       end
     end
+
+  end
+
+  if prog_win then
+    prog_win:Hide()
+  end
+
+  if #syn_errors > 0 then
+    local msg = string.format("音声の生成に失敗しました (%d 件):\n\n", #syn_errors)
+    for j = 1, math.min(5, #syn_errors) do
+      msg = msg .. syn_errors[j] .. "\n"
+    end
+    if #syn_errors > 5 then
+      msg = msg .. "... 他 " .. (#syn_errors - 5) .. " 件"
+    end
+    alert_mac("Resolve VOICEVOX - 合成エラー", msg)
   end
 
   log_line(string.format("配置完了: %d/%d", placed, #segments))
