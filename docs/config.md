@@ -37,9 +37,8 @@ DaVinci Resolve のタイムライン操作に関する設定です。
 
 | キー | 型 | デフォルト | 説明 |
 |---|---|---|---|
+| `text_track_index` | number | `1` | **Text+** クリップを読み取るビデオトラックの番号（1 始まり） |
 | `audio_track_index` | number | `1` | 音声クリップを配置するオーディオトラックの番号（1 始まり） |
-| `subtitle_track_index` | number | `1` | 字幕テキストを読み取るビデオトラックの番号（1 始まり） |
-| `subtitle_text_property_candidates` | string[] | `{ "Text", "StyledText", "Name" }` | テキストクリップからテキストを取得する際に試みるプロパティ名の一覧。先頭から順に試し、値が取れた時点で使用します |
 
 ---
 

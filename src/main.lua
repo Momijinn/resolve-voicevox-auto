@@ -579,32 +579,47 @@ local function get_resolve()
   return nil
 end
 
-local function get_subtitle_segments_from_timeline(timeline, subtitle_track_index, text_keys)
+local function get_text_from_video_clip(item)
+  -- Text+ (Fusion コンポジション) のみ対応。
+  -- プレーン「テキスト」ジェネレーターはスクリプト API でテキストを読み取れないためスキップ。
+  local ok_cnt, comp_count = pcall(function() return item:GetFusionCompCount() end)
+  if not (ok_cnt and tonumber(comp_count) and tonumber(comp_count) > 0) then
+    return nil
+  end
+
+  local ok_cc, comp = pcall(function() return item:GetFusionCompByIndex(1) end)
+  if not (ok_cc and comp) then return nil end
+
+  local ok_tl, tools = pcall(function() return comp:GetToolList(false) end)
+  if not (ok_tl and tools) then return nil end
+
+  for _, tool in pairs(tools) do
+    for _, input_key in ipairs({ "StyledText", "Text" }) do
+      local ok_ti, val = pcall(function() return tool:GetInput(input_key) end)
+      if ok_ti and type(val) == "string" and #trim(val) > 0 then
+        return trim(val)
+      end
+    end
+  end
+
+  return nil
+end
+
+local function get_text_segments_from_video_track(timeline, track_index)
+  if not timeline then return {} end
   local segments = {}
-  local items = timeline:GetItemListInTrack("subtitle", subtitle_track_index)
+  local items = timeline:GetItemListInTrack("video", track_index)
   if not items then return segments end
 
   for _, item in ipairs(items) do
-    local text = nil
-    for _, key in ipairs(text_keys) do
-      if key == "Name" then
-        local name = item:GetName()
-        if name and #trim(name) > 0 then
-          text = trim(name)
-          break
-        end
-      else
-        local ok, prop = pcall(function() return item:GetProperty(key) end)
-        if ok and prop and tostring(prop) ~= "" then
-          text = trim(tostring(prop))
-          break
-        end
-      end
-    end
-
+    local text = get_text_from_video_clip(item)
     if text and #text > 0 then
       local start_frame = tonumber(item:GetStart()) or 0
-      table.insert(segments, { text = text, start_frame = start_frame, timeline_item = item })
+      table.insert(segments, {
+        text          = text,
+        start_frame   = start_frame,
+        timeline_item = item,
+      })
     end
   end
 
@@ -903,19 +918,18 @@ local function run_main_job()
   local fps = tonumber(project:GetSetting("timelineFrameRate")) or 30
   log_line("timeline fps=" .. tostring(fps))
 
-  local segments = get_subtitle_segments_from_timeline(
+  local segments = get_text_segments_from_video_track(
     timeline,
-    tonumber(rcfg.subtitle_track_index),
-    rcfg.subtitle_text_property_candidates
+    tonumber(rcfg.text_track_index or 1)
   )
 
   if #segments == 0 then
-    log_line("字幕データが取得できませんでした。字幕トラック設定を確認してください。")
-    notify_mac("Resolve VOICEVOX", "字幕データが取得できません")
+    log_line("テキストクリップが取得できませんでした。text_track_index 設定を確認してください。")
+    notify_mac("Resolve VOICEVOX", "テキストクリップが取得できません")
     return 1
   end
 
-  log_line("字幕セグメント数: " .. tostring(#segments))
+  log_line("テキストセグメント数: " .. tostring(#segments))
 
   local placed = 0
   local syn_errors = {}
@@ -944,15 +958,15 @@ local function run_main_job()
     end
 
     if generated_ok then
-      local ok_place, placed_item = import_and_place(media_pool, timeline, wav_path, seg.start_frame, rcfg.audio_track_index)
+      local ok_place, placed_item = import_and_place(media_pool, timeline, wav_path, seg.start_frame, rcfg.text_track_index or 1)
       if ok_place then
         placed = placed + 1
-        log_line(string.format("[配置] frame=%d track=%d file=%s", seg.start_frame, tonumber(rcfg.audio_track_index), filename))
+        log_line(string.format("[配置] frame=%d track=%d file=%s", seg.start_frame, tonumber(rcfg.text_track_index or 1), filename))
 
         if seg.timeline_item then
           local linked, lerr = try_link_timeline_items(timeline, seg.timeline_item, placed_item)
           if linked then
-            log_line("[リンク] subtitle/audio linked: " .. filename)
+            log_line("[リンク] text/audio linked: " .. filename)
           else
             log_line("[リンク] skip: " .. tostring(lerr))
           end

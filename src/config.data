@@ -13,9 +13,7 @@ return {
 	},
 
 	resolve = {
-		audio_track_index = 1,
-		subtitle_track_index = 1,
-		subtitle_text_property_candidates = { "Text", "StyledText", "Name" },
+		text_track_index = 1,
 	},
 
 	runtime = {

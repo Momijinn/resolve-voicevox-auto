@@ -628,50 +628,61 @@ local function synthesize_wav(vcfg, text, out_wav, audio_padding_sec)
   return true, nil
 end
 
-local function get_subtitle_segments_from_timeline(timeline, subtitle_track_index, text_keys)
-  if not timeline then return {}, "timeline is nil" end
-  local function get_track_items(track_type, track_index)
-    local methods = {
-      function() return timeline:GetItemListInTrack(track_type, track_index) end,
-      function() return timeline.GetItemListInTrack and timeline.GetItemListInTrack(timeline, track_type, track_index) end,
-      function() return timeline:GetItemsInTrack(track_type, track_index) end,
-      function() return timeline.GetItemsInTrack and timeline.GetItemsInTrack(timeline, track_type, track_index) end,
-    }
+local function get_text_from_video_clip(item)
+  -- Text+ (Fusion コンポジション) のみ対応。
+  -- プレーン「テキスト」ジェネレーターはスクリプト API でテキストを読み取れないためスキップ。
+  local ok_cnt, comp_count = pcall(function() return item:GetFusionCompCount() end)
+  if not (ok_cnt and tonumber(comp_count) and tonumber(comp_count) > 0) then
+    return nil
+  end
 
+  local ok_cc, comp = pcall(function() return item:GetFusionCompByIndex(1) end)
+  if not (ok_cc and comp) then return nil end
+
+  local ok_tl, tools = pcall(function() return comp:GetToolList(false) end)
+  if not (ok_tl and tools) then return nil end
+
+  for _, tool in pairs(tools) do
+    for _, input_key in ipairs({ "StyledText", "Text" }) do
+      local ok_ti, val = pcall(function() return tool:GetInput(input_key) end)
+      if ok_ti and type(val) == "string" and #trim(val) > 0 then
+        return trim(val)
+      end
+    end
+  end
+
+  return nil
+end
+
+local function get_text_segments_from_video_track(timeline, track_index)
+  if not timeline then return {} end
+
+  local function get_track_items(tidx)
+    local methods = {
+      function() return timeline:GetItemListInTrack("video", tidx) end,
+      function() return timeline.GetItemListInTrack and timeline.GetItemListInTrack(timeline, "video", tidx) end,
+      function() return timeline:GetItemsInTrack("video", tidx) end,
+    }
     for _, m in ipairs(methods) do
       local ok, result = pcall(m)
-      if ok and result then
-        return result
-      end
+      if ok and result then return result end
     end
     return nil
   end
 
   local segments = {}
-  local items = get_track_items("subtitle", subtitle_track_index)
+  local items = get_track_items(track_index)
   if not items then return segments end
 
   for _, item in ipairs(items) do
-    local text = nil
-    for _, key in ipairs(text_keys) do
-      if key == "Name" then
-        local name = item:GetName()
-        if name and #trim(name) > 0 then
-          text = trim(name)
-          break
-        end
-      else
-        local ok, prop = pcall(function() return item:GetProperty(key) end)
-        if ok and prop and tostring(prop) ~= "" then
-          text = trim(tostring(prop))
-          break
-        end
-      end
-    end
-
+    local text = get_text_from_video_clip(item)
     if text and #text > 0 then
       local start_frame = tonumber(item:GetStart()) or 0
-      table.insert(segments, { text = text, start_frame = start_frame, timeline_item = item })
+      table.insert(segments, {
+        text         = text,
+        start_frame  = start_frame,
+        timeline_item = item,
+      })
     end
   end
 
@@ -952,7 +963,7 @@ local function run_watch_job()
   local output_dir = base_dir
   log_line("output_dir=" .. tostring(output_dir))
 
-  log_line("start auto watch interval=" .. tostring(interval_sec) .. "s track=" .. tostring(rcfg.audio_track_index or 1))
+  log_line("start auto watch interval=" .. tostring(interval_sec) .. "s track=" .. tostring(rcfg.text_track_index or 1))
   log_line("stable cycles required=" .. tostring(stable_cycles_required))
   log_line("delete grace cycles=" .. tostring(delete_grace_cycles))
   log_line("stop file: " .. tostring(stop_file))
@@ -1000,10 +1011,9 @@ local function run_watch_job()
 
       timeline_unavailable_logged = false
 
-      local segments = get_subtitle_segments_from_timeline(
+      local segments = get_text_segments_from_video_track(
         timeline,
-        tonumber(rcfg.subtitle_track_index or 1),
-        rcfg.subtitle_text_property_candidates or { "Text", "StyledText", "Name" }
+        tonumber(rcfg.text_track_index or 1)
       )
 
       local desired = {}
@@ -1016,7 +1026,7 @@ local function run_watch_job()
       if signature ~= last_signature then
         last_signature = signature
         stable_cycles = 1
-        log_line("detected subtitle change. waiting stabilize...")
+        log_line("detected text change. waiting stabilize...")
         return
       end
 
@@ -1029,7 +1039,7 @@ local function run_watch_job()
         return
       end
 
-      local existing, duplicates = collect_existing_managed_audio(timeline, tonumber(rcfg.audio_track_index or 1), prefix)
+      local existing, duplicates = collect_existing_managed_audio(timeline, tonumber(rcfg.text_track_index or 1), prefix)
 
       local generated_count = 0
       local placed_count = 0
@@ -1063,7 +1073,7 @@ local function run_watch_job()
         end
 
         if not existing[key] and exists(wav_path) then
-          local ok_place = import_and_place(media_pool, wav_path, seg.start_frame, tonumber(rcfg.audio_track_index or 1))
+          local ok_place = import_and_place(media_pool, wav_path, seg.start_frame, tonumber(rcfg.text_track_index or 1))
           if ok_place then
             placed_count = placed_count + 1
           else
@@ -1074,7 +1084,7 @@ local function run_watch_job()
 
       -- リンクパス: 配置済み・新規問わず全セグメントの字幕と音声をリンク
       do
-        local all_audio = collect_existing_managed_audio(timeline, tonumber(rcfg.audio_track_index or 1), prefix)
+        local all_audio = collect_existing_managed_audio(timeline, tonumber(rcfg.text_track_index or 1), prefix)
         for key, seg in pairs(desired) do
           local audio_item = all_audio[key]
           if seg.timeline_item and audio_item then
@@ -1135,9 +1145,9 @@ local function run_watch_job()
       end
 
       if generated_count > 0 or placed_count > 0 or deleted_count > 0 then
-        log_line(string.format("synced generated=%d placed=%d linked=%d deleted=%d subtitles=%d", generated_count, placed_count, linked_count, deleted_count, #segments))
+        log_line(string.format("synced generated=%d placed=%d linked=%d deleted=%d segments=%d", generated_count, placed_count, linked_count, deleted_count, #segments))
       else
-        log_line(string.format("synced no-op subtitles=%d", #segments))
+        log_line(string.format("synced no-op segments=%d", #segments))
       end
 
       applied_signature = signature
