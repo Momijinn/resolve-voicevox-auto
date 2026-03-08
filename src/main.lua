@@ -891,7 +891,7 @@ local function run_main_job()
   end
 
   -- プログレスウィンドウ（fusion UI が使えない環境では nil のまま処理を続行）
-  -- シングルスレッド Lua のため Process() は呼ばず、表示のみ
+  -- シングルスレッドのため表示のみ。Process() / キャンセルは使用しない
   local prog_fusion
   pcall(function() prog_fusion = r:Fusion() end)
   local ui_disp, prog_win
@@ -1025,6 +1025,7 @@ local function run_main_job()
         end
       end
     end
+
   end
 
   if prog_win then
