@@ -37,7 +37,7 @@ local function serialize_config(cfg)
   local lines = {
     "return {",
     "  voicevox = {",
-    string.format('    base_url = "%s",', escape_lua_string(vv.base_url or "http://127.0.0.1:50021")),
+    string.format('    base_url = "%s",', escape_lua_string(vv.base_url or "http://127.0.0.1:50022")),
     string.format("    speaker_id = %d,", math.floor(to_number(vv.speaker_id, 1))),
     string.format("    speed_scale = %s,", tostring(to_number(vv.speed_scale, 1.0))),
     string.format("    pitch_scale = %s,", tostring(to_number(vv.pitch_scale, 0.0))),
@@ -77,7 +77,7 @@ local function load_or_default_config(config_path)
   local function default_config()
     return {
       voicevox = {
-        base_url = "http://127.0.0.1:50021",
+        base_url = "http://127.0.0.1:50022",
         speaker_id = 1,
         speed_scale = 1.0,
         pitch_scale = 0.0,
@@ -187,8 +187,8 @@ local function ensure_voicevox_engine_running()
   end
 
   local name = "voicevox_engine"
-  local image = "voicevox/voicevox_engine:cpu-ubuntu20.04-latest"
-  local port = "50021"
+  local image = "voicevox/voicevox_engine:cpu-ubuntu24.04-0.26.0-dev"
+  local port = "50022"
 
   if not docker_container_running(docker_cmd, name) then
     local ok = false
@@ -215,6 +215,48 @@ local function ensure_voicevox_engine_running()
   end
 
   return false, "VOICEVOX engine not ready"
+end
+
+local function register_docker_stop_guard(docker_cmd, container_name)
+  local tmp = string.format("/tmp/vv_guard_%d_%d.sh", os.time(), math.random(10000, 99999))
+  local f = io.open(tmp, "wb")
+  if not f then return end
+  f:write("#!/bin/sh\n")
+  f:write("while pgrep -x 'DaVinci Resolve' >/dev/null 2>&1 || pgrep -x Resolve >/dev/null 2>&1; do sleep 10; done\n")
+  f:write(shell_quote(docker_cmd) .. " stop " .. shell_quote(container_name) .. " >/dev/null 2>&1\n")
+  f:write("rm -f " .. shell_quote(tmp) .. "\n")
+  f:close()
+  os.execute("/usr/bin/nohup /bin/sh " .. shell_quote(tmp) .. " </dev/null >/dev/null 2>&1 &")
+end
+
+-- コンテナを起動するだけ（ヘルスチェック待ちなし）。UIをブロックしない。
+local function start_voicevox_docker_nowait()
+  local docker_cmd = resolve_docker_cmd()
+  if not docker_cmd then return end
+
+  local name = "voicevox_engine"
+  local image = "voicevox/voicevox_engine:cpu-ubuntu24.04-0.26.0-dev"
+  local port = "50022"
+
+  if docker_container_running(docker_cmd, name) then
+    -- 既に起動中 → Resolve 終了時に停止するガードだけ登録
+    register_docker_stop_guard(docker_cmd, name)
+    return
+  end
+
+  local ok = false
+  if docker_container_exists(docker_cmd, name) then
+    ok = execute_ok(os.execute(shell_quote(docker_cmd) .. " start " .. shell_quote(name) .. " >/dev/null 2>&1"))
+  else
+    ok = execute_ok(os.execute(
+      shell_quote(docker_cmd) .. " run -d --name " .. shell_quote(name) ..
+      " -p " .. tostring(port) .. ":50021 " .. shell_quote(image) .. " >/dev/null 2>&1"
+    ))
+  end
+
+  if ok then
+    register_docker_stop_guard(docker_cmd, name)
+  end
 end
 
 local function decode_json(text)
@@ -518,7 +560,7 @@ local function main()
   local ui = fusion.UIManager
   local disp = bmd.UIDispatcher(ui)
 
-  local docker_ok, docker_err = ensure_voicevox_engine_running()
+  start_voicevox_docker_nowait()
 
   local win = disp:AddWindow({
     ID = "VoiceVoxConfigWin",
@@ -696,14 +738,10 @@ local function main()
     items.link_clips.Checked = rt.link_clips == true
 
     local speaker_ok, speaker_err = refresh_speakers(false)
-    if docker_ok and speaker_ok then
+    if speaker_ok then
       set_status("loaded: " .. config_load_path)
-    elseif (not docker_ok) and speaker_ok then
-      set_status("docker auto-start failed: " .. tostring(docker_err))
-    elseif docker_ok and (not speaker_ok) then
-      set_status("loaded with speaker error: " .. tostring(speaker_err))
     else
-      set_status("docker/speaker error: " .. tostring(docker_err) .. " / " .. tostring(speaker_err))
+      set_status("loaded (speaker unavailable: " .. tostring(speaker_err) .. ")")
     end
   end
 

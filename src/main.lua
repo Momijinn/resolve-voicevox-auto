@@ -467,12 +467,24 @@ local function docker_container_exists(docker_cmd, name)
   return execute_ok(os.execute(cmd))
 end
 
+local function register_docker_stop_guard(docker_cmd, container_name)
+  local tmp = string.format("/tmp/vv_guard_%d_%d.sh", os.time(), math.random(10000, 99999))
+  local f = io.open(tmp, "wb")
+  if not f then return end
+  f:write("#!/bin/sh\n")
+  f:write("while pgrep -x 'DaVinci Resolve' >/dev/null 2>&1 || pgrep -x Resolve >/dev/null 2>&1; do sleep 10; done\n")
+  f:write(shell_quote(docker_cmd) .. " stop " .. shell_quote(container_name) .. " >/dev/null 2>&1\n")
+  f:write("rm -f " .. shell_quote(tmp) .. "\n")
+  f:close()
+  os.execute("/usr/bin/nohup /bin/sh " .. shell_quote(tmp) .. " </dev/null >/dev/null 2>&1 &")
+end
+
 local function start_voicevox_docker_if_needed()
   local state = {
     started_by_script = false,
     container_name = "voicevox_engine",
-    image = "voicevox/voicevox_engine:cpu-ubuntu20.04-latest",
-    port = "50021",
+    image = "voicevox/voicevox_engine:cpu-ubuntu24.04-0.26.0-dev",
+    port = "50022",
   }
 
   local docker_cmd = resolve_docker_cmd()
@@ -482,6 +494,7 @@ local function start_voicevox_docker_if_needed()
   state.docker_cmd = docker_cmd
 
   if docker_container_running(docker_cmd, state.container_name) then
+    register_docker_stop_guard(docker_cmd, state.container_name)
     return state, nil
   end
 
@@ -497,10 +510,7 @@ local function start_voicevox_docker_if_needed()
 
   if ok then
     state.started_by_script = true
-    local guard_cmd =
-      "(while pgrep -f 'DaVinci Resolve' >/dev/null 2>&1 || pgrep -x Resolve >/dev/null 2>&1; do sleep 10; done; " ..
-      shell_quote(docker_cmd) .. " stop " .. shell_quote(state.container_name) .. " >/dev/null 2>&1) >/dev/null 2>&1 &"
-    os.execute(guard_cmd)
+    register_docker_stop_guard(docker_cmd, state.container_name)
 
     local ready = false
     for _ = 1, 90 do

@@ -111,14 +111,14 @@ Resolve Scripts 配下から削除する場合:
 - 対応するクリップは **Text+** のみです。プレーンな「テキスト」ジェネレーターは DaVinci Resolve のスクリプト API 制限によりテキストを読み取れないため非対応です。
 - `overwrite = false`（デフォルト）なら変更したセグメントのみ再合成できません。テキストを編集した場合は `overwrite = true` にして `main.lua` を実行するか、`auto_watch.lua` を使用してください。
 - 監視モードは単一起動で使用してください（ロックファイルで多重起動を防止）。
-- `main.lua` / `auto_watch.lua` 実行時は VOICEVOX Docker (`voicevox_engine`) を自動起動します。
-- 実行終了時に、その実行で起動したコンテナは自動停止します。
-- さらに Resolve 終了を監視するガードを起動し、Resolve終了時にもコンテナ停止を試みます。
+- `main.lua` / `auto_watch.lua` 実行時は VOICEVOX Docker (`voicevox/voicevox_engine:cpu-ubuntu24.04-0.26.0-dev`) をホスト port `50022` で自動起動します。
+- `config.lua` を開くと Docker を非同期で起動します。起動完了後に「Test VOICEVOX」ボタンを押すとスピーカー一覧を読み込めます。
+- Resolve 終了時にコンテナを自動停止します（起動済みのコンテナも対象）。
 
 ## Troubleshooting
 
 - VOICEVOX に接続できない場合:
-  - `curl -sS http://127.0.0.1:50021/version` が返ることを確認
+  - `curl -sS http://127.0.0.1:50022/version` が返ることを確認
 - Resolve API へ接続できない場合:
   - Resolve 起動中に実行
   - Resolve の External Scripting 設定を確認
