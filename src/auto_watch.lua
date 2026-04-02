@@ -617,14 +617,15 @@ local function append_audio_padding_to_wav(path, padding_sec)
 end
 
 local function synthesize_wav(vcfg, text, out_wav, audio_padding_sec)
-  local qurl = string.format("%s/audio_query?text=%s&speaker=%d", vcfg.base_url, urlencode(text), tonumber(vcfg.speaker_id))
+  local base_url = vcfg.base_url or "http://127.0.0.1:50022"
+  local qurl = string.format("%s/audio_query?text=%s&speaker=%d", base_url, urlencode(text), tonumber(vcfg.speaker_id))
   local query_json, qerr = curl_json("POST", qurl, "")
   if not query_json or #query_json == 0 then
     return false, "audio_query failed: " .. tostring(qerr)
   end
 
   local patched = patch_audio_query_json(query_json, vcfg)
-  local surl = string.format("%s/synthesis?speaker=%d", vcfg.base_url, tonumber(vcfg.speaker_id))
+  local surl = string.format("%s/synthesis?speaker=%d", base_url, tonumber(vcfg.speaker_id))
   local out_dir = out_wav:match("^(.*)/[^/]+$") or "."
   local ok, serr = curl_to_file("POST", surl, patched, out_wav, out_dir)
   if not ok then
@@ -940,7 +941,7 @@ local function run_watch_job()
   local health = run_capture("curl -sS " .. shell_quote((vcfg.base_url or "http://127.0.0.1:50022") .. "/version"))
   if not health or #trim(health) == 0 then
     log_line("VOICEVOX Engine に接続できません。")
-    alert_mac("Resolve VOICEVOX - エラー", "VOICEVOX Engine に接続できません。\nbase_url を確認してください。")
+    alert_mac("Resolve VOICEVOX - エラー", "VOICEVOX Engine に接続できません。")
     return 1
   end
 
@@ -1073,8 +1074,8 @@ local function run_watch_job()
         local filename = filename_for_segment(prefix, seg, pad_tag)
         local wav_path = output_dir .. "/" .. filename
 
-        -- テキスト内容ベースのキャッシュファイル（移動しても再合成しない）
-        local cache_filename = string.format("_cache_%s_%s.wav", hash_text(seg.text), pad_tag)
+        -- テキスト内容+speaker_idベースのキャッシュファイル（移動しても再合成しない）
+        local cache_filename = string.format("_cache_%s_s%d_%s.wav", hash_text(seg.text), tonumber(vcfg.speaker_id) or 1, pad_tag)
         local cache_path = output_dir .. "/" .. cache_filename
 
         if rt.overwrite or (not exists(cache_path)) then

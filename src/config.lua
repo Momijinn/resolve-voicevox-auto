@@ -37,7 +37,6 @@ local function serialize_config(cfg)
   local lines = {
     "return {",
     "  voicevox = {",
-    string.format('    base_url = "%s",', escape_lua_string(vv.base_url or "http://127.0.0.1:50022")),
     string.format("    speaker_id = %d,", math.floor(to_number(vv.speaker_id, 1))),
     string.format("    speed_scale = %s,", tostring(to_number(vv.speed_scale, 1.0))),
     string.format("    pitch_scale = %s,", tostring(to_number(vv.pitch_scale, 0.0))),
@@ -77,7 +76,6 @@ local function load_or_default_config(config_path)
   local function default_config()
     return {
       voicevox = {
-        base_url = "http://127.0.0.1:50022",
         speaker_id = 1,
         speed_scale = 1.0,
         pitch_scale = 0.0,
@@ -488,11 +486,10 @@ local function parse_speaker_map(speakers_json)
   return id_to_display
 end
 
-local function fetch_speaker_map(base_url)
-  base_url = trim(base_url or "")
-  if base_url == "" then
-    return nil, "base_url is empty"
-  end
+local BASE_URL = "http://127.0.0.1:50022"
+
+local function fetch_speaker_map()
+  local base_url = BASE_URL
 
   local cmd = "curl -sS " .. shell_quote(base_url .. "/speakers") .. " -w '\nHTTPSTATUS:%{http_code}' 2>&1"
   local out = run_capture(cmd)
@@ -579,7 +576,6 @@ local function main()
       Weight = 0,
       Spacing = 4,
       ui:Label { Text = "VOICEVOX" },
-      ui:HGroup { ui:Label { Text = "base_url", Weight = 0.35 }, ui:LineEdit { ID = "base_url", Weight = 0.65 } },
       ui:HGroup { ui:Label { Text = "speaker", Weight = 0.35 }, ui:ComboBox { ID = "speaker_select", Weight = 0.65 } },
       ui:HGroup { ui:Label { Text = "speed_scale", Weight = 0.35 }, ui:LineEdit { ID = "speed_scale", Weight = 0.65 } },
       ui:HGroup { ui:Label { Text = "pitch_scale", Weight = 0.35 }, ui:LineEdit { ID = "pitch_scale", Weight = 0.65 } },
@@ -671,8 +667,7 @@ local function main()
   end
 
   local function refresh_speakers(show_status)
-    local current_base_url = trim(items.base_url.Text)
-    local map, err = fetch_speaker_map(current_base_url)
+    local map, err = fetch_speaker_map()
     if map then
       speaker_map = map
       speaker_items = build_speaker_items(speaker_map)
@@ -712,7 +707,6 @@ local function main()
     local rs = cfg.resolve or {}
     local rt = cfg.runtime or {}
 
-    items.base_url.Text = tostring(vv.base_url or "")
     current_speaker_id = tonumber(vv.speaker_id or 1) or 1
     items.speed_scale.Text = tostring(vv.speed_scale or 1.0)
     items.pitch_scale.Text = tostring(vv.pitch_scale or 0.0)
@@ -748,7 +742,6 @@ local function main()
   local function read_from_form()
     return {
       voicevox = {
-        base_url = trim(items.base_url.Text),
         speaker_id = get_selected_speaker_id(),
         speed_scale = to_number(items.speed_scale.Text, 1.0),
         pitch_scale = to_number(items.pitch_scale.Text, 0.0),
@@ -793,11 +786,7 @@ local function main()
   end
 
   function win.On.test_btn.Clicked()
-    local base_url = trim(items.base_url.Text)
-    if base_url == "" then
-      set_status("test failed: base_url is empty")
-      return
-    end
+    local base_url = BASE_URL
 
     local cmd = "curl -sS " .. shell_quote(base_url .. "/version") .. " -w '\nHTTPSTATUS:%{http_code}' 2>&1"
     local out = run_capture(cmd)
@@ -846,7 +835,6 @@ local function main()
     local rs = cfg.resolve or {}
     local rt = cfg.runtime or {}
 
-    items.base_url.Text = tostring(vv.base_url or "")
     current_speaker_id = tonumber(vv.speaker_id or 1) or 1
     items.speed_scale.Text = tostring(vv.speed_scale or 1.0)
     items.pitch_scale.Text = tostring(vv.pitch_scale or 0.0)

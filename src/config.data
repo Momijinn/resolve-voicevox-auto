@@ -1,6 +1,5 @@
 return {
 	voicevox = {
-		base_url = "http://127.0.0.1:50022",
 		speaker_id = 1,
 		speed_scale = 1.0,
 		pitch_scale = 0.0,

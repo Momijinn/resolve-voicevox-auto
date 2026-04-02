@@ -804,14 +804,15 @@ local function append_audio_padding_to_wav(path, padding_sec)
 end
 
 local function synthesize_wav(vcfg, text, out_wav, audio_padding_sec)
-  local qurl = string.format("%s/audio_query?text=%s&speaker=%d", vcfg.base_url, urlencode(text), tonumber(vcfg.speaker_id))
+  local base_url = vcfg.base_url or "http://127.0.0.1:50022"
+  local qurl = string.format("%s/audio_query?text=%s&speaker=%d", base_url, urlencode(text), tonumber(vcfg.speaker_id))
   local query_json, qerr = curl_json("POST", qurl, "")
   if not query_json or #query_json == 0 then
     return false, "audio_query failed: " .. tostring(qerr)
   end
 
   local patched = patch_audio_query_json(query_json, vcfg)
-  local surl = string.format("%s/synthesis?speaker=%d", vcfg.base_url, tonumber(vcfg.speaker_id))
+  local surl = string.format("%s/synthesis?speaker=%d", base_url, tonumber(vcfg.speaker_id))
   local out_dir = out_wav:match("^(.*)/[^/]+$") or "."
   local ok, serr = curl_to_file("POST", surl, patched, out_wav, out_dir)
   if not ok then
@@ -909,9 +910,9 @@ local function run_main_job()
   log_line("config_path=" .. tostring(config_path))
   log_line("log_path=" .. tostring(_log_file_path))
 
-  local health = run_capture("curl -sS " .. shell_quote(vcfg.base_url .. "/version"))
+  local health = run_capture("curl -sS " .. shell_quote((vcfg.base_url or "http://127.0.0.1:50022") .. "/version"))
   if not health or #trim(health) == 0 then
-    log_line("VOICEVOX Engine に接続できません。base_url を確認してください。")
+    log_line("VOICEVOX Engine に接続できません。")
     notify_mac("Resolve VOICEVOX", "VOICEVOX Engine に接続できません")
     return 1
   end
@@ -1005,7 +1006,7 @@ local function run_main_job()
       local itm = prog_win:GetItems()
       itm.prog_label.Text = string.format("処理中 %d / %d", i, #segments)
     end
-    local filename = string.format("%04d_%08d_%s.wav", i, seg.start_frame, pad_tag)
+    local filename = string.format("%04d_%08d_s%d_%s.wav", i, seg.start_frame, tonumber(vcfg.speaker_id) or 1, pad_tag)
     local wav_path = output_dir .. "/" .. filename
     local file_existed = exists(wav_path)
     local was_synthesized = false
