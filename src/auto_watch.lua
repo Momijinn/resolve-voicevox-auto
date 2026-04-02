@@ -343,12 +343,24 @@ local function docker_container_exists(docker_cmd, name)
   return execute_ok(os.execute(cmd))
 end
 
+local function register_docker_stop_guard(docker_cmd, container_name)
+  local tmp = string.format("/tmp/vv_guard_%d_%d.sh", os.time(), math.random(10000, 99999))
+  local f = io.open(tmp, "wb")
+  if not f then return end
+  f:write("#!/bin/sh\n")
+  f:write("while pgrep -x 'DaVinci Resolve' >/dev/null 2>&1 || pgrep -x Resolve >/dev/null 2>&1; do sleep 10; done\n")
+  f:write(shell_quote(docker_cmd) .. " stop " .. shell_quote(container_name) .. " >/dev/null 2>&1\n")
+  f:write("rm -f " .. shell_quote(tmp) .. "\n")
+  f:close()
+  os.execute("/usr/bin/nohup /bin/sh " .. shell_quote(tmp) .. " </dev/null >/dev/null 2>&1 &")
+end
+
 local function start_voicevox_docker_if_needed()
   local state = {
     started_by_script = false,
     container_name = "voicevox_engine",
-    image = "voicevox/voicevox_engine:cpu-ubuntu20.04-latest",
-    port = "50021",
+    image = "voicevox/voicevox_engine:cpu-ubuntu24.04-0.26.0-dev",
+    port = "50022",
   }
 
   local docker_cmd = resolve_docker_cmd()
@@ -358,6 +370,7 @@ local function start_voicevox_docker_if_needed()
   state.docker_cmd = docker_cmd
 
   if docker_container_running(docker_cmd, state.container_name) then
+    register_docker_stop_guard(docker_cmd, state.container_name)
     return state, nil
   end
 
@@ -373,10 +386,7 @@ local function start_voicevox_docker_if_needed()
 
   if ok then
     state.started_by_script = true
-    local guard_cmd =
-      "(while pgrep -f 'DaVinci Resolve' >/dev/null 2>&1 || pgrep -x Resolve >/dev/null 2>&1; do sleep 10; done; " ..
-      shell_quote(docker_cmd) .. " stop " .. shell_quote(state.container_name) .. " >/dev/null 2>&1) >/dev/null 2>&1 &"
-    os.execute(guard_cmd)
+    register_docker_stop_guard(docker_cmd, state.container_name)
 
     local ready = false
     for _ = 1, 90 do
@@ -607,14 +617,15 @@ local function append_audio_padding_to_wav(path, padding_sec)
 end
 
 local function synthesize_wav(vcfg, text, out_wav, audio_padding_sec)
-  local qurl = string.format("%s/audio_query?text=%s&speaker=%d", vcfg.base_url, urlencode(text), tonumber(vcfg.speaker_id))
+  local base_url = vcfg.base_url or "http://127.0.0.1:50022"
+  local qurl = string.format("%s/audio_query?text=%s&speaker=%d", base_url, urlencode(text), tonumber(vcfg.speaker_id))
   local query_json, qerr = curl_json("POST", qurl, "")
   if not query_json or #query_json == 0 then
     return false, "audio_query failed: " .. tostring(qerr)
   end
 
   local patched = patch_audio_query_json(query_json, vcfg)
-  local surl = string.format("%s/synthesis?speaker=%d", vcfg.base_url, tonumber(vcfg.speaker_id))
+  local surl = string.format("%s/synthesis?speaker=%d", base_url, tonumber(vcfg.speaker_id))
   local out_dir = out_wav:match("^(.*)/[^/]+$") or "."
   local ok, serr = curl_to_file("POST", surl, patched, out_wav, out_dir)
   if not ok then
@@ -927,10 +938,10 @@ local function run_watch_job()
     end
   end
 
-  local health = run_capture("curl -sS " .. shell_quote((vcfg.base_url or "http://127.0.0.1:50021") .. "/version"))
+  local health = run_capture("curl -sS " .. shell_quote((vcfg.base_url or "http://127.0.0.1:50022") .. "/version"))
   if not health or #trim(health) == 0 then
     log_line("VOICEVOX Engine に接続できません。")
-    alert_mac("Resolve VOICEVOX - エラー", "VOICEVOX Engine に接続できません。\nbase_url を確認してください。")
+    alert_mac("Resolve VOICEVOX - エラー", "VOICEVOX Engine に接続できません。")
     return 1
   end
 
@@ -1063,8 +1074,8 @@ local function run_watch_job()
         local filename = filename_for_segment(prefix, seg, pad_tag)
         local wav_path = output_dir .. "/" .. filename
 
-        -- テキスト内容ベースのキャッシュファイル（移動しても再合成しない）
-        local cache_filename = string.format("_cache_%s_%s.wav", hash_text(seg.text), pad_tag)
+        -- テキスト内容+speaker_idベースのキャッシュファイル（移動しても再合成しない）
+        local cache_filename = string.format("_cache_%s_s%d_%s.wav", hash_text(seg.text), tonumber(vcfg.speaker_id) or 1, pad_tag)
         local cache_path = output_dir .. "/" .. cache_filename
 
         if rt.overwrite or (not exists(cache_path)) then

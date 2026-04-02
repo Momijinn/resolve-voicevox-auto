@@ -18,7 +18,6 @@ VOICEVOX エンジンへのリクエストに関する設定です。
 
 | キー | 型 | デフォルト | 説明 |
 |---|---|---|---|
-| `base_url` | string | `"http://127.0.0.1:50021"` | VOICEVOX エンジンの URL |
 | `speaker_id` | number | `1` | 話者 ID（VOICEVOX の `/speakers` で確認できます） |
 | `speed_scale` | number | `1.0` | 話速の倍率。値が大きいほど速くなります |
 | `pitch_scale` | number | `0.0` | ピッチの調整値。正で高く、負で低くなります |

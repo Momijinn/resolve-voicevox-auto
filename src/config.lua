@@ -37,7 +37,6 @@ local function serialize_config(cfg)
   local lines = {
     "return {",
     "  voicevox = {",
-    string.format('    base_url = "%s",', escape_lua_string(vv.base_url or "http://127.0.0.1:50021")),
     string.format("    speaker_id = %d,", math.floor(to_number(vv.speaker_id, 1))),
     string.format("    speed_scale = %s,", tostring(to_number(vv.speed_scale, 1.0))),
     string.format("    pitch_scale = %s,", tostring(to_number(vv.pitch_scale, 0.0))),
@@ -77,7 +76,6 @@ local function load_or_default_config(config_path)
   local function default_config()
     return {
       voicevox = {
-        base_url = "http://127.0.0.1:50021",
         speaker_id = 1,
         speed_scale = 1.0,
         pitch_scale = 0.0,
@@ -187,8 +185,8 @@ local function ensure_voicevox_engine_running()
   end
 
   local name = "voicevox_engine"
-  local image = "voicevox/voicevox_engine:cpu-ubuntu20.04-latest"
-  local port = "50021"
+  local image = "voicevox/voicevox_engine:cpu-ubuntu24.04-0.26.0-dev"
+  local port = "50022"
 
   if not docker_container_running(docker_cmd, name) then
     local ok = false
@@ -215,6 +213,48 @@ local function ensure_voicevox_engine_running()
   end
 
   return false, "VOICEVOX engine not ready"
+end
+
+local function register_docker_stop_guard(docker_cmd, container_name)
+  local tmp = string.format("/tmp/vv_guard_%d_%d.sh", os.time(), math.random(10000, 99999))
+  local f = io.open(tmp, "wb")
+  if not f then return end
+  f:write("#!/bin/sh\n")
+  f:write("while pgrep -x 'DaVinci Resolve' >/dev/null 2>&1 || pgrep -x Resolve >/dev/null 2>&1; do sleep 10; done\n")
+  f:write(shell_quote(docker_cmd) .. " stop " .. shell_quote(container_name) .. " >/dev/null 2>&1\n")
+  f:write("rm -f " .. shell_quote(tmp) .. "\n")
+  f:close()
+  os.execute("/usr/bin/nohup /bin/sh " .. shell_quote(tmp) .. " </dev/null >/dev/null 2>&1 &")
+end
+
+-- コンテナを起動するだけ（ヘルスチェック待ちなし）。UIをブロックしない。
+local function start_voicevox_docker_nowait()
+  local docker_cmd = resolve_docker_cmd()
+  if not docker_cmd then return end
+
+  local name = "voicevox_engine"
+  local image = "voicevox/voicevox_engine:cpu-ubuntu24.04-0.26.0-dev"
+  local port = "50022"
+
+  if docker_container_running(docker_cmd, name) then
+    -- 既に起動中 → Resolve 終了時に停止するガードだけ登録
+    register_docker_stop_guard(docker_cmd, name)
+    return
+  end
+
+  local ok = false
+  if docker_container_exists(docker_cmd, name) then
+    ok = execute_ok(os.execute(shell_quote(docker_cmd) .. " start " .. shell_quote(name) .. " >/dev/null 2>&1"))
+  else
+    ok = execute_ok(os.execute(
+      shell_quote(docker_cmd) .. " run -d --name " .. shell_quote(name) ..
+      " -p " .. tostring(port) .. ":50021 " .. shell_quote(image) .. " >/dev/null 2>&1"
+    ))
+  end
+
+  if ok then
+    register_docker_stop_guard(docker_cmd, name)
+  end
 end
 
 local function decode_json(text)
@@ -446,11 +486,10 @@ local function parse_speaker_map(speakers_json)
   return id_to_display
 end
 
-local function fetch_speaker_map(base_url)
-  base_url = trim(base_url or "")
-  if base_url == "" then
-    return nil, "base_url is empty"
-  end
+local BASE_URL = "http://127.0.0.1:50022"
+
+local function fetch_speaker_map()
+  local base_url = BASE_URL
 
   local cmd = "curl -sS " .. shell_quote(base_url .. "/speakers") .. " -w '\nHTTPSTATUS:%{http_code}' 2>&1"
   local out = run_capture(cmd)
@@ -518,7 +557,7 @@ local function main()
   local ui = fusion.UIManager
   local disp = bmd.UIDispatcher(ui)
 
-  local docker_ok, docker_err = ensure_voicevox_engine_running()
+  start_voicevox_docker_nowait()
 
   local win = disp:AddWindow({
     ID = "VoiceVoxConfigWin",
@@ -537,7 +576,6 @@ local function main()
       Weight = 0,
       Spacing = 4,
       ui:Label { Text = "VOICEVOX" },
-      ui:HGroup { ui:Label { Text = "base_url", Weight = 0.35 }, ui:LineEdit { ID = "base_url", Weight = 0.65 } },
       ui:HGroup { ui:Label { Text = "speaker", Weight = 0.35 }, ui:ComboBox { ID = "speaker_select", Weight = 0.65 } },
       ui:HGroup { ui:Label { Text = "speed_scale", Weight = 0.35 }, ui:LineEdit { ID = "speed_scale", Weight = 0.65 } },
       ui:HGroup { ui:Label { Text = "pitch_scale", Weight = 0.35 }, ui:LineEdit { ID = "pitch_scale", Weight = 0.65 } },
@@ -629,8 +667,7 @@ local function main()
   end
 
   local function refresh_speakers(show_status)
-    local current_base_url = trim(items.base_url.Text)
-    local map, err = fetch_speaker_map(current_base_url)
+    local map, err = fetch_speaker_map()
     if map then
       speaker_map = map
       speaker_items = build_speaker_items(speaker_map)
@@ -670,7 +707,6 @@ local function main()
     local rs = cfg.resolve or {}
     local rt = cfg.runtime or {}
 
-    items.base_url.Text = tostring(vv.base_url or "")
     current_speaker_id = tonumber(vv.speaker_id or 1) or 1
     items.speed_scale.Text = tostring(vv.speed_scale or 1.0)
     items.pitch_scale.Text = tostring(vv.pitch_scale or 0.0)
@@ -696,21 +732,16 @@ local function main()
     items.link_clips.Checked = rt.link_clips == true
 
     local speaker_ok, speaker_err = refresh_speakers(false)
-    if docker_ok and speaker_ok then
+    if speaker_ok then
       set_status("loaded: " .. config_load_path)
-    elseif (not docker_ok) and speaker_ok then
-      set_status("docker auto-start failed: " .. tostring(docker_err))
-    elseif docker_ok and (not speaker_ok) then
-      set_status("loaded with speaker error: " .. tostring(speaker_err))
     else
-      set_status("docker/speaker error: " .. tostring(docker_err) .. " / " .. tostring(speaker_err))
+      set_status("loaded (speaker unavailable: " .. tostring(speaker_err) .. ")")
     end
   end
 
   local function read_from_form()
     return {
       voicevox = {
-        base_url = trim(items.base_url.Text),
         speaker_id = get_selected_speaker_id(),
         speed_scale = to_number(items.speed_scale.Text, 1.0),
         pitch_scale = to_number(items.pitch_scale.Text, 0.0),
@@ -755,11 +786,7 @@ local function main()
   end
 
   function win.On.test_btn.Clicked()
-    local base_url = trim(items.base_url.Text)
-    if base_url == "" then
-      set_status("test failed: base_url is empty")
-      return
-    end
+    local base_url = BASE_URL
 
     local cmd = "curl -sS " .. shell_quote(base_url .. "/version") .. " -w '\nHTTPSTATUS:%{http_code}' 2>&1"
     local out = run_capture(cmd)
@@ -808,7 +835,6 @@ local function main()
     local rs = cfg.resolve or {}
     local rt = cfg.runtime or {}
 
-    items.base_url.Text = tostring(vv.base_url or "")
     current_speaker_id = tonumber(vv.speaker_id or 1) or 1
     items.speed_scale.Text = tostring(vv.speed_scale or 1.0)
     items.pitch_scale.Text = tostring(vv.pitch_scale or 0.0)
