@@ -75,6 +75,7 @@ fi
 cp "$SRC_DIR/config.lua" "$TARGET_DIR/config.lua"
 cp "$SRC_DIR/auto_watch.lua" "$TARGET_DIR/auto_watch.lua"
 cp "$SRC_DIR/stop_watch.lua" "$TARGET_DIR/stop_watch.lua"
+cp "$SRC_DIR/one_shot.lua" "$TARGET_DIR/one_shot.lua"
 if [[ "$CONFIG_POLICY" == "push" ]]; then
   cp "$SRC_DIR/config.data" "$TARGET_DIR/config.data"
   echo "overwrote config.data from workspace: $TARGET_DIR/config.data"
