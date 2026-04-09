@@ -666,7 +666,8 @@ local function run_one_shot()
 
   -- 音声合成
   local pad_tag = padding_tag(rt.audio_padding_sec or 0)
-  local filename = string.format("oneshot_%08d_s%d_%s.wav", start_frame, tonumber(vcfg.speaker_id) or 1, pad_tag)
+  local prefix = rt.managed_clip_prefix or "vvauto"
+  local filename = string.format("%s_%08d_s%d_%s.wav", prefix, start_frame, tonumber(vcfg.speaker_id) or 1, pad_tag)
   local wav_path = base_dir .. "/" .. filename
 
   log_line("合成開始: " .. filename)

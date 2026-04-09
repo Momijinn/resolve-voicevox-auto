@@ -1230,7 +1230,7 @@ local function main()
   stop_voicevox_docker_if_started(docker_state)
 
   if not ok then
-    print("auto_watch.lua fatal: " .. tostring(code_or_err))
+    print("watch_start.lua fatal: " .. tostring(code_or_err))
     return 1
   end
 

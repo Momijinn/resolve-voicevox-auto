@@ -36,8 +36,7 @@ DaVinci Resolve のタイムライン操作に関する設定です。
 
 | キー | 型 | デフォルト | 説明 |
 |---|---|---|---|
-| `text_track_index` | number | `1` | **Text+** クリップを読み取るビデオトラックの番号（1 始まり） |
-| `audio_track_index` | number | `1` | 音声クリップを配置するオーディオトラックの番号（1 始まり） |
+| `text_track_index` | number | `1` | **Text+** クリップを読み取るビデオトラックの番号（1 始まり）。同じ番号のオーディオトラックに音声クリップが配置されます |
 
 ---
 
@@ -51,10 +50,10 @@ DaVinci Resolve のタイムライン操作に関する設定です。
 | `log_path` | string | `"./run.log"` | ログファイルの出力先パス |
 | `overwrite` | boolean | `false` | `true` にすると同名の音声ファイルが既に存在する場合でも上書き生成します |
 | `audio_padding_sec` | number | `0.15` | 音声クリップの長さに加算するパディング時間（秒）。クリップの末尾に余白を設けます |
-| `watch_interval_sec` | number | `2` | 自動監視モード（`auto_watch`）でタイムラインの変化をポーリングする間隔（秒） |
+| `watch_interval_sec` | number | `2` | 自動監視モード（`watch_start`）でタイムラインの変化をポーリングする間隔（秒） |
 | `watch_stable_cycles` | number | `2` | タイムラインの変化が「安定した」と判定するまでに変化なしが続く必要があるポーリング回数 |
 | `watch_delete_grace_cycles` | number | `4` | クリップの削除を確定と判断するまでに待機するポーリング回数 |
-| `watch_stop_file` | string | `"./watch.stop"` | このパスにファイルが存在すると自動監視を停止します（`stop_watch.lua` が作成します） |
+| `watch_stop_file` | string | `"./watch.stop"` | このパスにファイルが存在すると自動監視を停止します（`watch_stop.lua` が作成します） |
 | `watch_lock_file` | string | `"./watch.lock"` | 二重起動を防ぐためのロックファイルのパス |
 | `managed_clip_prefix` | string | `"vvauto"` | スクリプトが管理するクリップを識別するための名前プレフィックス。このプレフィックスが付いたクリップのみ自動更新・削除の対象になります |
 | `link_clips` | boolean | `false` | `true` にすると Text+ クリップと配置した音声クリップをリンクします |

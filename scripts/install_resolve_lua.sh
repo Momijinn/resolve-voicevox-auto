@@ -64,18 +64,22 @@ if [[ "$CONFIG_POLICY" == "pull" && -f "$TARGET_DIR/config.data" ]]; then
   echo "pulled config.data from target: $SRC_DIR/config.data"
 fi
 
-cp "$SRC_DIR/main.lua" "$TARGET_DIR/main.lua"
-if [[ ! -f "$TARGET_DIR/config.data" && -f "$TARGET_DIR/config.lua" ]]; then
-  if grep -q '^return[[:space:]]*{' "$TARGET_DIR/config.lua"; then
-    cp "$TARGET_DIR/config.lua" "$TARGET_DIR/config.data"
-    echo "migrated legacy config.lua to config.data: $TARGET_DIR/config.data"
-  fi
-fi
-
 cp "$SRC_DIR/config.lua" "$TARGET_DIR/config.lua"
-cp "$SRC_DIR/auto_watch.lua" "$TARGET_DIR/auto_watch.lua"
-cp "$SRC_DIR/stop_watch.lua" "$TARGET_DIR/stop_watch.lua"
+cp "$SRC_DIR/watch_start.lua" "$TARGET_DIR/watch_start.lua"
+cp "$SRC_DIR/watch_stop.lua" "$TARGET_DIR/watch_stop.lua"
 cp "$SRC_DIR/one_shot.lua" "$TARGET_DIR/one_shot.lua"
+if [[ -f "$TARGET_DIR/main.lua" ]]; then
+  rm -f "$TARGET_DIR/main.lua"
+  echo "removed legacy main.lua: $TARGET_DIR/main.lua"
+fi
+if [[ -f "$TARGET_DIR/auto_watch.lua" ]]; then
+  rm -f "$TARGET_DIR/auto_watch.lua"
+  echo "removed legacy auto_watch.lua: $TARGET_DIR/auto_watch.lua"
+fi
+if [[ -f "$TARGET_DIR/stop_watch.lua" ]]; then
+  rm -f "$TARGET_DIR/stop_watch.lua"
+  echo "removed legacy stop_watch.lua: $TARGET_DIR/stop_watch.lua"
+fi
 if [[ "$CONFIG_POLICY" == "push" ]]; then
   cp "$SRC_DIR/config.data" "$TARGET_DIR/config.data"
   echo "overwrote config.data from workspace: $TARGET_DIR/config.data"
@@ -97,6 +101,6 @@ Installed Resolve Lua scripts.
 Next:
 1) Restart DaVinci Resolve (if already open)
 2) Open Workspace > Scripts > Utility > resolve_voicevox_auto > config.lua (設定GUI)
-3) Pseudo real-time: run auto_watch.lua / stop with stop_watch.lua
-4) One-shot: run main.lua after saving settings
+3) Pseudo real-time: run watch_start.lua / stop with watch_stop.lua
+4) One-shot: run one_shot.lua after saving settings
 EOF
