@@ -876,6 +876,16 @@ local function build_signature(desired)
   return table.concat(keys, "|")
 end
 
+-- テキスト内容のみに基づく変更検知用シグネチャ（位置変更では変化しない）
+local function build_content_signature(segments)
+  local hashes = {}
+  for _, seg in ipairs(segments) do
+    table.insert(hashes, hash_text(seg.text))
+  end
+  table.sort(hashes)
+  return table.concat(hashes, "|")
+end
+
 local function delete_timeline_items(timeline, items)
   if not items or #items == 0 then return true end
   local ok, result = pcall(function()
@@ -1035,9 +1045,10 @@ local function run_watch_job()
         desired[key] = seg
       end
 
-      local signature = build_signature(desired)
-      if signature ~= last_signature then
-        last_signature = signature
+      -- テキスト内容のみで変更検知（位置移動では再同期しない）
+      local content_sig = build_content_signature(segments)
+      if content_sig ~= last_signature then
+        last_signature = content_sig
         stable_cycles = 1
         log_line("detected text change. waiting stabilize...")
         return
@@ -1048,7 +1059,7 @@ local function run_watch_job()
         return
       end
 
-      if signature == applied_signature then
+      if content_sig == applied_signature then
         return
       end
 
@@ -1191,7 +1202,7 @@ local function run_watch_job()
         log_line(string.format("synced no-op segments=%d", #segments))
       end
 
-      applied_signature = signature
+      applied_signature = content_sig
     end)
 
     if not ok_cycle then

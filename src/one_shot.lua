@@ -363,6 +363,27 @@ local function find_audio_item_on_track(timeline, audio_track_index, start_frame
   return nil
 end
 
+local function try_link_timeline_items(timeline, subtitle_item, audio_item)
+  if not timeline or not subtitle_item or not audio_item then
+    return false, "missing timeline item"
+  end
+
+  local attempts = {
+    function() return timeline:SetClipsLinked({ subtitle_item, audio_item }, true) end,
+    function() return timeline:LinkClips({ subtitle_item, audio_item }) end,
+    function() return timeline:SetLinkedClips({ subtitle_item, audio_item }, true) end,
+  }
+
+  for _, attempt in ipairs(attempts) do
+    local ok, result = pcall(attempt)
+    if ok and result ~= false then
+      return true, nil
+    end
+  end
+
+  return false, "link API unavailable"
+end
+
 local function import_and_place(media_pool, timeline, wav_path, start_frame, audio_track_index)
   local root_folder = nil
   pcall(function() root_folder = media_pool:GetRootFolder() end)
@@ -668,6 +689,16 @@ local function run_one_shot()
   local ok_place, placed_item = import_and_place(media_pool, timeline, wav_path, start_frame, text_track)
   if ok_place then
     log_line(string.format("配置完了: frame=%d track=%d file=%s", start_frame, text_track, filename))
+
+    if rt.link_clips and clip and placed_item then
+      local linked, lerr = try_link_timeline_items(timeline, clip, placed_item)
+      if linked then
+        log_line("リンク完了: text/audio linked")
+      else
+        log_line("リンクスキップ: " .. tostring(lerr))
+      end
+    end
+
     notify_mac("Resolve VOICEVOX", string.format("完了: \"%s\"", text:sub(1, 30)))
   else
     log_line("配置に失敗: " .. filename)
