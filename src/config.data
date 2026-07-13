@@ -20,7 +20,7 @@ return {
 		log_path = "./run.log",
 		overwrite = false,
 		sync_subtitle_duration = true,
-		audio_padding_sec = 0.15,
+		audio_padding_sec = 0.7,
 		watch_interval_sec = 2,
 		watch_stable_cycles = 2,
 		watch_delete_grace_cycles = 4,
