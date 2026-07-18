@@ -63,7 +63,7 @@ local function serialize_config(cfg)
     string.format('    watch_stop_file = "%s",', escape_lua_string(rt.watch_stop_file or "./watch.stop")),
     string.format('    watch_lock_file = "%s",', escape_lua_string(rt.watch_lock_file or "./watch.lock")),
     string.format('    managed_clip_prefix = "%s",', escape_lua_string(rt.managed_clip_prefix or "vvauto")),
-    string.format("    link_clips = %s,", rt.link_clips and "true" or "false"),
+    string.format("    link_clips = %s,", rt.link_clips ~= false and "true" or "false"),
     "  },",
     "}",
     "",
@@ -100,7 +100,7 @@ local function load_or_default_config(config_path)
         watch_stop_file = "./watch.stop",
         watch_lock_file = "./watch.lock",
         managed_clip_prefix = "vvauto",
-        link_clips = false,
+        link_clips = true,
       },
     }
   end
@@ -616,15 +616,19 @@ local function main()
       ui:HGroup { ui:Label { Text = "watch_stop_file", Weight = 0.35 }, ui:LineEdit { ID = "watch_stop_file", Weight = 0.65 } },
       ui:HGroup { ui:Label { Text = "watch_lock_file", Weight = 0.35 }, ui:LineEdit { ID = "watch_lock_file", Weight = 0.65 } },
       ui:HGroup { ui:Label { Text = "managed_clip_prefix", Weight = 0.35 }, ui:LineEdit { ID = "managed_clip_prefix", Weight = 0.65 } },
-      ui:HGroup { ui:Label { Text = "link_clips", Weight = 0.35 }, ui:CheckBox { ID = "link_clips", Weight = 0.65, Text = "Link Text+ and audio clips" } },
+      ui:HGroup { ui:Label { Text = "link_clips", Weight = 0.35 }, ui:CheckBox { ID = "link_clips", Weight = 0.65, Text = "Link audio+subtitle (Narration UI) / Text+ (watch/one_shot)" } },
     },
 
     ui:HGroup {
       Weight = 0,
       ui:Button { ID = "test_btn", Text = "Test VOICEVOX" },
-      ui:Button { ID = "reset_btn", Text = "Reset" },
       ui:Button { ID = "save_btn", Text = "Save" },
       ui:Button { ID = "close_btn", Text = "Close" },
+    },
+    ui:HGroup {
+      Weight = 0,
+      ui:Label { Text = "", Weight = 1 },
+      ui:Button { ID = "reset_btn", Text = "Reset to Defaults", Weight = 0 },
     },
   })
 
@@ -830,6 +834,10 @@ local function main()
   end
 
   function win.On.reset_btn.Clicked()
+    -- Confirm before reset
+    local confirm_script = '/usr/bin/osascript -e \'display dialog "設定をデフォルト値にリセットします。よろしいですか？" with title "Reset" buttons {"Cancel", "Reset"} default button "Cancel" cancel button "Cancel"\' 2>/dev/null'
+    local res = os.execute(confirm_script)
+    if not execute_ok(res) then return end
     local cfg = load_or_default_config("__non_existing__")
     local vv = cfg.voicevox or {}
     local rs = cfg.resolve or {}
