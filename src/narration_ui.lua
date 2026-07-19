@@ -524,10 +524,32 @@ local function ensure_track_count(timeline, track_type, target_index)
   end
 end
 
+-- Locate (or create) the root-level "voicevox" Media Pool bin so all generated
+-- items (WAV clips, the SRT clip and the tmp_narration timeline) are kept in one
+-- place instead of the currently-open bin. Returns the bin folder or nil.
+local function ensure_voicevox_bin(media_pool)
+  local root_folder = nil
+  pcall(function() root_folder = media_pool:GetRootFolder() end)
+  if not root_folder then return nil end
+
+  local ok_sf, subfolders = pcall(function() return root_folder:GetSubFolderList() end)
+  if ok_sf and type(subfolders) == "table" then
+    for _, sf in ipairs(subfolders) do
+      local ok_n, n = pcall(function() return sf:GetName() end)
+      if ok_n and n == "voicevox" then return sf end
+    end
+  end
+
+  local ok_add, new_bin = pcall(function() return media_pool:AddSubFolder(root_folder, "voicevox") end)
+  if ok_add and new_bin then return new_bin end
+  return nil
+end
+
 -- Create (or recreate) a dedicated EMPTY timeline with the given name and make
 -- it current. Any pre-existing timeline with the same name is deleted first so
 -- the new one is guaranteed EMPTY (subtitles only place at correct frames on an
--- empty timeline). Returns (timeline, err).
+-- empty timeline). The timeline is created inside the "voicevox" bin so it does
+-- not clutter the currently-open bin. Returns (timeline, err).
 local function prepare_tmp_timeline(project, media_pool, name, log_fn)
   local function dlog(m) if log_fn then log_fn(m) end end
 
@@ -560,7 +582,17 @@ local function prepare_tmp_timeline(project, media_pool, name, log_fn)
   end
 
   local tl = nil
+  -- Create the timeline inside the "voicevox" bin so it does not land in the
+  -- currently-open bin. Restore the previous folder afterwards.
+  local original_folder = nil
+  local ok_gf, cur_folder = pcall(function() return media_pool:GetCurrentFolder() end)
+  if ok_gf and cur_folder then original_folder = cur_folder end
+  local bin = ensure_voicevox_bin(media_pool)
+  if bin then pcall(function() media_pool:SetCurrentFolder(bin) end) end
+
   pcall(function() tl = media_pool:CreateEmptyTimeline(name) end)
+
+  if original_folder then pcall(function() media_pool:SetCurrentFolder(original_folder) end) end
   if not tl then return nil, "CreateEmptyTimeline failed" end
   pcall(function() project:SetCurrentTimeline(tl) end)
   dlog(string.format("created empty timeline '%s'", name))
@@ -603,23 +635,7 @@ end
 -- Returns (ok, placed_timeline_item).
 local function import_and_place_audio(media_pool, timeline, wav_path, start_frame, audio_track_index)
   -- Locate or create the root-level "voicevox" bin (prevents nesting on re-import).
-  local root_folder = nil
-  pcall(function() root_folder = media_pool:GetRootFolder() end)
-
-  local target_bin = nil
-  if root_folder then
-    local ok_sf, subfolders = pcall(function() return root_folder:GetSubFolderList() end)
-    if ok_sf and type(subfolders) == "table" then
-      for _, sf in ipairs(subfolders) do
-        local ok_n, n = pcall(function() return sf:GetName() end)
-        if ok_n and n == "voicevox" then target_bin = sf; break end
-      end
-    end
-    if not target_bin then
-      local ok_add, new_bin = pcall(function() return media_pool:AddSubFolder(root_folder, "voicevox") end)
-      if ok_add and new_bin then target_bin = new_bin end
-    end
-  end
+  local target_bin = ensure_voicevox_bin(media_pool)
 
   local original_folder = nil
   local ok_gf, cur_folder = pcall(function() return media_pool:GetCurrentFolder() end)
@@ -725,7 +741,16 @@ local function rebuild_subtitle_track(media_pool, timeline, srt_entries, fps, sr
     return false, {}
   end
 
+  -- Import the SRT into the "voicevox" bin (not the currently-open bin).
+  local original_folder = nil
+  local ok_gf, cur_folder = pcall(function() return media_pool:GetCurrentFolder() end)
+  if ok_gf and cur_folder then original_folder = cur_folder end
+  local bin = ensure_voicevox_bin(media_pool)
+  if bin then pcall(function() media_pool:SetCurrentFolder(bin) end) end
+
   local ok_imp, imp_result = pcall(function() return media_pool:ImportMedia({srt_path}) end)
+
+  if original_folder then pcall(function() media_pool:SetCurrentFolder(original_folder) end) end
   if not ok_imp or not imp_result or #imp_result == 0 then
     dlog("SRT import failed")
     return false, {}
