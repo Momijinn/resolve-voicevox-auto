@@ -1056,6 +1056,7 @@ local function main()
     -- has been placed in this run.
     -- ----------------------------------------------------------------
     local wav_paths = {}  -- [i] = wav path or nil
+    local line_start = {} -- [i] = start frame assigned to this line (audio == subtitle)
     local srt_frame = current_frame  -- advances per line to compute start frames
     for i = 1, #ordered_lines do
       prog_items.prog_label.Text = string.format("Synthesizing %d / %d ...", i, #ordered_lines)
@@ -1081,6 +1082,7 @@ local function main()
         wav_paths[i] = wav_path
 
         local dur_frames = audio_duration_frames(nil, fps, wav_path)
+        line_start[i] = srt_frame
         table.insert(srt_entries, {
           start_frame = srt_frame,
           dur_frames  = dur_frames,
@@ -1114,8 +1116,10 @@ local function main()
 
     -- ----------------------------------------------------------------
     -- Phase 2: Place audio clips now (after SRT).
+    -- Each clip is pinned to line_start[i] via recordFrame -- the SAME frame
+    -- its subtitle entry uses.  This guarantees audio start == subtitle start
+    -- for every line and removes any cumulative drift (no running cursor).
     -- ----------------------------------------------------------------
-    local audio_cursor = current_frame  -- = playhead_frame (unchanged so far)
     for i = 1, #ordered_lines do
       prog_items.prog_label.Text = string.format("Placing audio %d / %d ...", i, #ordered_lines)
       pcall(function() bmd.wait(0.01) end)
@@ -1127,21 +1131,18 @@ local function main()
       end
 
       local wav_path = wav_paths[i]
-      if wav_path then
-        local ok_audio, audio_item = import_and_place_audio(media_pool, timeline, wav_path, audio_cursor, track_index)
+      local frame    = line_start[i]
+      if wav_path and frame then
+        local ok_audio, audio_item = import_and_place_audio(media_pool, timeline, wav_path, frame, track_index)
         if not ok_audio then
-          log(string.format("line %d audio place failed frame=%d track=%d", i, audio_cursor, track_index))
+          log(string.format("line %d audio place failed frame=%d track=%d", i, frame, track_index))
           failed = failed + 1
           table.insert(audio_items_this_run, nil)
         else
-          local dur_frames       = audio_duration_frames(audio_item, fps, wav_path)
           local a_track, a_start = find_item_location(timeline, "audio", audio_item)
-          log(string.format("line %d audio placed frame=%d dur=%d actual=(A%s@%s)",
-            i, audio_cursor, dur_frames, tostring(a_track or "?"), tostring(a_start or "?")))
-
-          local base_start = audio_cursor
-          if a_start and a_start >= 0 then base_start = math.max(base_start, a_start) end
-          audio_cursor = base_start + dur_frames
+          local diff = (a_start and (a_start - frame)) or "?"
+          log(string.format("line %d audio placed frame=%d actual=(A%s@%s diff=%s)",
+            i, frame, tostring(a_track or "?"), tostring(a_start or "?"), tostring(diff)))
 
           table.insert(audio_items_this_run, audio_item)
           placed = placed + 1
