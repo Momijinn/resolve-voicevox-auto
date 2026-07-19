@@ -62,6 +62,15 @@ local function show_mac_dialog(title, message)
   os.execute("/usr/bin/osascript -e " .. shell_quote(script))
 end
 
+-- macOS notification banner (non-blocking).
+local function notify_mac(title, message)
+  local t = tostring(title or "Resolve VOICEVOX")
+  local m = tostring(message or "")
+  local script = string.format('display notification "%s" with title "%s"',
+    m:gsub('"', '\\"'), t:gsub('"', '\\"'))
+  os.execute("/usr/bin/osascript -e " .. shell_quote(script))
+end
+
 local function run_capture(cmd)
   local p = io.popen(cmd)
   if not p then return nil end
@@ -515,6 +524,49 @@ local function ensure_track_count(timeline, track_type, target_index)
   end
 end
 
+-- Create (or recreate) a dedicated EMPTY timeline with the given name and make
+-- it current. Any pre-existing timeline with the same name is deleted first so
+-- the new one is guaranteed EMPTY (subtitles only place at correct frames on an
+-- empty timeline). Returns (timeline, err).
+local function prepare_tmp_timeline(project, media_pool, name, log_fn)
+  local function dlog(m) if log_fn then log_fn(m) end end
+
+  local function list_timelines()
+    local out = {}
+    local count = tonumber(project:GetTimelineCount()) or 0
+    for i = 1, count do
+      local tl = nil
+      pcall(function() tl = project:GetTimelineByIndex(i) end)
+      if tl then
+        local nm = ""
+        pcall(function() nm = tostring(tl:GetName() or "") end)
+        table.insert(out, { tl = tl, name = nm })
+      end
+    end
+    return out
+  end
+
+  -- Delete any existing timeline(s) with this name so the new one is empty.
+  local all = list_timelines()
+  local same, other = {}, nil
+  for _, row in ipairs(all) do
+    if row.name == name then table.insert(same, row.tl) else other = other or row.tl end
+  end
+  if #same > 0 then
+    -- Can't delete the current timeline; switch away first.
+    if other then pcall(function() project:SetCurrentTimeline(other) end) end
+    pcall(function() media_pool:DeleteTimelines(same) end)
+    dlog(string.format("deleted %d existing '%s' timeline(s)", #same, name))
+  end
+
+  local tl = nil
+  pcall(function() tl = media_pool:CreateEmptyTimeline(name) end)
+  if not tl then return nil, "CreateEmptyTimeline failed" end
+  pcall(function() project:SetCurrentTimeline(tl) end)
+  dlog(string.format("created empty timeline '%s'", name))
+  return tl, nil
+end
+
 -- Find the first audio item at start_frame on the given track (with optional name hint).
 local function find_audio_item_on_track(timeline, audio_track_index, start_frame, name_hint)
   local items  = get_track_items(timeline, "audio", tonumber(audio_track_index))
@@ -624,19 +676,15 @@ local function ms_to_srt(ms)
   return string.format("%02d:%02d:%02d,%03d", h, m_v, s, f)
 end
 
--- Clear ALL subtitle clips on track 1, then place subtitles at exact audio
--- frame positions using a probe-and-correct two-pass approach.
+-- Place subtitles at exact audio frame positions on the (empty) tmp_narration
+-- timeline.
 --
--- PROBLEM: Resolve's AppendToTimeline for SRT ignores both recordFrame and
--- SetCurrentTimecode. It uses an internal "current_pos" that advances with
--- each AppendToTimeline call and cannot be set directly.
---
--- SOLUTION (probe approach):
---   1. Place a 1-frame dummy SRT → observe probe_frame = sub1.GetStart().
---      After this, Resolve's current_pos = probe_frame + 1.
---   2. Delete probe clips (current_pos stays at probe_frame + 1).
---   3. Build corrected SRT: entry_i_time = (audio_i_start - (probe_frame+1)) / fps
---   4. Place corrected SRT → sub_i = (probe_frame+1) + entry_i = audio_i_start ✓
+-- Narration is always generated on a freshly-created EMPTY timeline. On an empty
+-- subtitle track, SRT AppendToTimeline places each entry at an ABSOLUTE position
+-- measured from the timeline's start frame (placement = start_frame + srt_time).
+-- So we build ONE SRT whose entry times are relative to that origin and append
+-- it once. (On a populated timeline this would drift, which is exactly why
+-- generation happens on a dedicated empty timeline.)
 --
 -- srt_entries: array of {start_frame, dur_frames, text}  (audio clip positions)
 -- srt_path:    where to write the final SRT file
@@ -650,84 +698,15 @@ local function rebuild_subtitle_track(media_pool, timeline, srt_entries, fps, sr
     end
   end)
 
-  -- NOTE: We intentionally do NOT delete existing subtitle clips here.
-  -- Each narration run APPENDS new subtitles so that clips from previous
-  -- runs are preserved on the timeline.
-  local existing_n = 0
-  pcall(function()
-    local ex = timeline:GetItemListInTrack("subtitle", 1)
-    existing_n = ex and #ex or 0
-  end)
-  dlog(string.format("subtitle track: existing_clips=%d (preserved)", existing_n))
-
-  -- PROBE PASS: place a 1-frame dummy SRT to discover Resolve's current_pos.
-  local one_frame_ms = math.ceil(1000 / fps)
-  local probe_text   = "1\n" .. ms_to_srt(0) .. " --> " .. ms_to_srt(one_frame_ms) .. "\nprobe\n\n"
-  local probe_path   = srt_path:gsub("%.srt$", "") .. "_probe.srt"
-  local probe_frame  = nil
-
-  if write_file(probe_path, probe_text) then
-    local ok_pi, probe_imp = pcall(function() return media_pool:ImportMedia({probe_path}) end)
-    if ok_pi and probe_imp and #probe_imp > 0 then
-      -- Snapshot items BEFORE placing probe so we can identify only the new clip.
-      local pre_items = {}
-      local pre_set   = {}
-      pcall(function()
-        local t = timeline:GetItemListInTrack("subtitle", 1)
-        if t then
-          for _, it in ipairs(t) do
-            table.insert(pre_items, it)
-            pre_set[tostring(it)] = true
-          end
-        end
-      end)
-
-      pcall(function()
-        media_pool:AppendToTimeline({{mediaPoolItem = probe_imp[1], trackIndex = 1}})
-      end)
-
-      -- Find ONLY the newly added probe clip (not existing clips from prev runs).
-      local new_clip = nil
-      pcall(function()
-        local post = timeline:GetItemListInTrack("subtitle", 1)
-        if post then
-          -- Sort by start desc; the probe is the last-placed clip.
-          table.sort(post, function(a, b)
-            return (tonumber(a:GetStart()) or 0) > (tonumber(b:GetStart()) or 0)
-          end)
-          for _, it in ipairs(post) do
-            if not pre_set[tostring(it)] then
-              new_clip = it
-              break
-            end
-          end
-          -- Fallback: if we can't distinguish by identity, take the last by position.
-          if not new_clip and #post > #pre_items then
-            new_clip = post[1]  -- sorted desc, so post[1] is the rightmost = probe
-          end
-        end
-      end)
-
-      if new_clip then
-        probe_frame = math.floor(tonumber(new_clip:GetStart()) or -1)
-        dlog(string.format("probe: current_pos=%d", probe_frame))
-        -- Delete ONLY the probe clip. Existing subtitle clips are preserved.
-        pcall(function() timeline:DeleteClips({new_clip}, false) end)
-      end
-    end
-    pcall(function() os.remove(probe_path) end)
-  end
-
-  if not probe_frame or probe_frame < 0 then
-    dlog("probe failed: cannot determine current_pos")
+  -- Placement origin = timeline start frame (absolute-placement base).
+  local origin = nil
+  pcall(function() origin = math.floor(tonumber(timeline:GetStartFrame()) or -1) end)
+  if not origin or origin < 0 then
+    dlog("cannot determine timeline start frame")
     return false, {}
   end
+  dlog(string.format("subtitle origin (timeline start)=%d", origin))
 
-  -- After probe, Resolve's current_pos = probe_frame (the probe clip has 0 effective
-  -- frame advancement in Resolve's internal position tracking).
-  -- Build real SRT: entry_i_time = ceil(N * 1000 / fps) where N = audio_i_start - probe_frame.
-  -- Placement: sub_i = probe_frame + floor(entry_i_time * fps / 1000) = audio_i_start ✓
-  local origin = probe_frame
   local parts = {}
   for idx, entry in ipairs(srt_entries) do
     local N     = entry.start_frame - origin
@@ -1020,27 +999,38 @@ local function main()
     local project = pm and pm:GetCurrentProject() or nil
     if not project then set_status("project not found"); return end
 
-    local timeline   = project:GetCurrentTimeline()
     local media_pool = project:GetMediaPool()
-    if not timeline or not media_pool then
-      log("timeline/media_pool unavailable")
-      set_status("timeline/media_pool unavailable")
+    if not media_pool then
+      log("media_pool unavailable")
+      set_status("media_pool unavailable")
       return
     end
 
     local fps         = tonumber(project:GetSetting("timelineFrameRate")) or 30
     local track_index = tonumber(rcfg.text_track_index or 1)
 
+    -- Generate onto a dedicated EMPTY timeline "tmp_narration". Subtitles only
+    -- land at correct frames on an EMPTY timeline (Resolve API limitation), so
+    -- narration is built here; the user copy-pastes it into the real timeline.
+    local timeline, tl_err = prepare_tmp_timeline(project, media_pool, "tmp_narration", log)
+    if not timeline then
+      log("tmp_narration unavailable: " .. tostring(tl_err))
+      set_status("tmp_narration 作成失敗: " .. tostring(tl_err))
+      return
+    end
+
+    -- Ensure the fixed audio/video track index exists on the new timeline so
+    -- audio lands on the same track number the user expects (for copy-paste).
     ensure_track_count(timeline, "video", track_index)
     ensure_track_count(timeline, "audio", track_index)
 
-    local playhead_tc   = timeline:GetCurrentTimecode()
-    local current_frame = timecode_to_frame(playhead_tc, fps)
-    if not current_frame then
-      log("playhead timecode parse failed: " .. tostring(playhead_tc))
-      set_status("playhead timecode parse failed")
-      return
+    -- Base all placement at the new timeline's start frame.
+    local current_frame = nil
+    pcall(function() current_frame = math.floor(tonumber(timeline:GetStartFrame()) or -1) end)
+    if not current_frame or current_frame < 0 then
+      current_frame = timecode_to_frame(timeline:GetStartTimecode() or "01:00:00:00", fps) or 0
     end
+    local playhead_tc = "tmp_narration@start"
 
     local ordered_lines = normalize_line_list(lines)
     log(string.format("start lines=%d playhead_tc=%s frame=%d track=%d fps=%s",
@@ -1104,15 +1094,15 @@ local function main()
 
     -- ----------------------------------------------------------------
     -- Place SRT FIRST (before any audio AppendToTimeline calls).
-    -- At this point the "current record position" is the playhead frame,
-    -- so entry1 (00:00:00,000) lands exactly at playhead. ✓
+    -- The tmp_narration timeline is empty, so SRT entries land at absolute
+    -- positions from its start frame (entry1 at the timeline start). ✓
     -- ----------------------------------------------------------------
     local srt_path = nil
     if #srt_entries > 0 then
       local srt_filename = string.format("vvnarr_%d.srt", os.time())
       srt_path = output_dir .. "/" .. srt_filename
 
-      log(string.format("SRT: probe-and-correct  base=%d", srt_entries[1].start_frame))
+      log(string.format("SRT: absolute-origin  base=%d", srt_entries[1].start_frame))
       local sub_ok, all_subs = rebuild_subtitle_track(media_pool, timeline, srt_entries, fps, srt_path, log)
       if sub_ok then
         log(string.format("subtitle track rebuilt (clips=%d)", #all_subs))
@@ -1165,8 +1155,7 @@ local function main()
 
     -- Link subtitle + audio pairs.
     -- Match by proximity: find the subtitle clip nearest to each audio clip's
-    -- start frame. This is correct even when the subtitle track has clips from
-    -- previous runs (which would be at different positions).
+    -- start frame (they were placed at the same frames on the empty timeline).
     if do_link and #srt_entries > 0 then
       local all_subs = {}
       pcall(function()
@@ -1211,7 +1200,14 @@ local function main()
     local msg = string.format("%s: lines=%d placed=%d failed=%d%s",
       result_tag, #ordered_lines, placed, failed, srt_msg)
     set_status(msg)
-    show_mac_dialog("Resolve VOICEVOX Narration UI", msg)
+    if not cancelled then
+      notify_mac("Resolve VOICEVOX", string.format("tmp_narration 生成完了 (placed=%d, failed=%d)", placed, failed))
+      show_mac_dialog("Resolve VOICEVOX Narration UI",
+        "tmp_narration に生成しました。\nこのタイムラインの内容をコピーして、目的のタイムラインへ貼り付けてください。\n\n" .. msg)
+    else
+      notify_mac("Resolve VOICEVOX", "キャンセルしました")
+      show_mac_dialog("Resolve VOICEVOX Narration UI", msg)
+    end
   end
 
   -- ---- UI event handlers ----
