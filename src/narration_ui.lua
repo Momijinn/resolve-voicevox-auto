@@ -896,11 +896,6 @@ local function main()
 
     ui:TextEdit { ID = "text_input", Weight = 2, PlainText = "" },
 
-    ui:HGroup {
-      Weight = 0,
-      ui:Button { ID = "clear_btn", Text = "Clear Lines" },
-    },
-
     ui:Label { ID = "preview_header", Text = "Live preview (read-only):", Weight = 0 },
     ui:TextEdit { ID = "lines_preview", Weight = 1, PlainText = "", Enabled = false },
 
@@ -1225,13 +1220,6 @@ local function main()
 
   function win.On.text_input.TextChanged()
     refresh_preview(tostring(items.text_input.PlainText or ""))
-  end
-
-  function win.On.clear_btn.Clicked()
-    lines = {}
-    items.text_input.PlainText    = ""
-    items.lines_preview.PlainText = ""
-    set_status("lines cleared")
   end
 
   function win.On.place_btn.Clicked()
