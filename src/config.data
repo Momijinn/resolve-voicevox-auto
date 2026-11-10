@@ -18,14 +18,6 @@ return {
 	runtime = {
 		output_dir = "",
 		log_path = "./run.log",
-		overwrite = false,
 		sync_subtitle_duration = true,
-		audio_padding_sec = 0.7,
-		watch_interval_sec = 2,
-		watch_stable_cycles = 2,
-		watch_delete_grace_cycles = 4,
-		watch_stop_file = "./watch.stop",
-		watch_lock_file = "./watch.lock",
-		managed_clip_prefix = "vvauto",
 	},
 }

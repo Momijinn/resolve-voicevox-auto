@@ -6,8 +6,6 @@ DaVinci Resolve のビデオトラックに配置した **Text+** クリップ�
 
 - Resolve 内で完結する Lua 実装
 - ビデオトラック上の **Text+** クリップからテキストを取得して WAV を自動生成
-- 監視モードで Text+ クリップの追加・変更・削除に追従（テキスト変更時は旧音声を即座に置換）
-- ワンショットモードで再生ヘッド位置の Text+ クリップだけを音声合成して配置
 - 生成音声はメディアプールの **voicevox** ビンに自動整理（ルート直下に一度だけ作成）
 - GUI で `config.data` を編集・保存（スクリプトメニューには表示されません）
 
@@ -15,9 +13,6 @@ DaVinci Resolve のビデオトラックに配置した **Text+** クリップ�
 
 ## Repository Structure
 
-- `src/one_shot.lua` : 再生ヘッド位置の Text+ を1件だけ合成・配置
-- `src/watch_start.lua` : 監視実行（疑似リアルタイム）
-- `src/watch_stop.lua` : 監視停止
 - `src/config.lua` : 設定GUI
 - `src/config.data` : 設定ファイル
 - `scripts/install_resolve_lua.sh` : Resolve 用ディレクトリへコピー（`config.data` の挙動を引数指定可）
@@ -80,9 +75,6 @@ cd <repository-directory>
    - ビデオトラックに **Text+** クリップを配置し、合成したいテキストを入力する
      - `text_track_index` で読み取るビデオトラック番号を指定（デフォルト: 1）
      - プレーンな「テキスト」ジェネレーターは API 制限のため非対応
-   - ワンショット実行: `one_shot.lua`（再生ヘッド位置の Text+ クリップだけを合成・配置）
-   - 監視開始: `watch_start.lua`
-   - 監視停止: `watch_stop.lua`
 
 ## Uninstall
 
@@ -109,9 +101,6 @@ Resolve Scripts 配下から削除する場合:
 - 生成音声は `output_dir` に指定したフォルダへ直接保存されます。存在するフォルダを絶対パスで指定してください（自動作成しません）。
 - メディアプール内にルート直下の **voicevox** ビンを自動作成し、生成音声をまとめます。再起動後もネストは発生しません。
 - 対応するクリップは **Text+** のみです。プレーンな「テキスト」ジェネレーターは DaVinci Resolve のスクリプト API 制限によりテキストを読み取れないため非対応です。
-- `overwrite = false`（デフォルト）なら変更したセグメントのみ再合成できません。テキストを編集した場合は `overwrite = true` にして `one_shot.lua` を実行するか、`watch_start.lua` を使用してください。
-- 監視モードは単一起動で使用してください（ロックファイルで多重起動を防止）。
-- `one_shot.lua` / `watch_start.lua` 実行時は VOICEVOX Docker (`voicevox/voicevox_engine:cpu-ubuntu24.04-0.26.0-dev`) をホスト port `50022` で自動起動します。
 - `config.lua` を開くと Docker を非同期で起動します。起動完了後に「Test VOICEVOX」ボタンを押すとスピーカー一覧を読み込めます。
 - Resolve 終了時にコンテナを自動停止します（起動済みのコンテナも対象）。
 

@@ -55,15 +55,6 @@ local function serialize_config(cfg)
     "  runtime = {",
     string.format('    output_dir = "%s",', escape_lua_string(rt.output_dir or "")),
     string.format('    log_path = "%s",', escape_lua_string(rt.log_path or "./run.log")),
-    string.format("    overwrite = %s,", rt.overwrite and "true" or "false"),
-    string.format("    audio_padding_sec = %s,", tostring(to_number(rt.audio_padding_sec, 0.15))),
-    string.format("    watch_interval_sec = %s,", tostring(to_number(rt.watch_interval_sec, 2))),
-    string.format("    watch_stable_cycles = %s,", tostring(to_number(rt.watch_stable_cycles, 2))),
-    string.format("    watch_delete_grace_cycles = %s,", tostring(to_number(rt.watch_delete_grace_cycles, 4))),
-    string.format('    watch_stop_file = "%s",', escape_lua_string(rt.watch_stop_file or "./watch.stop")),
-    string.format('    watch_lock_file = "%s",', escape_lua_string(rt.watch_lock_file or "./watch.lock")),
-    string.format('    managed_clip_prefix = "%s",', escape_lua_string(rt.managed_clip_prefix or "vvauto")),
-    string.format("    link_clips = %s,", rt.link_clips and "true" or "false"),
     "  },",
     "}",
     "",
@@ -92,15 +83,6 @@ local function load_or_default_config(config_path)
       runtime = {
         output_dir = "",
         log_path = "./run.log",
-        overwrite = false,
-        audio_padding_sec = 0.15,
-        watch_interval_sec = 2,
-        watch_stable_cycles = 2,
-        watch_delete_grace_cycles = 4,
-        watch_stop_file = "./watch.stop",
-        watch_lock_file = "./watch.lock",
-        managed_clip_prefix = "vvauto",
-        link_clips = false,
       },
     }
   end
@@ -561,7 +543,7 @@ local function main()
 
   local win = disp:AddWindow({
     ID = "VoiceVoxConfigWin",
-    WindowTitle = "Resolve VOICEVOX Config",
+    WindowTitle = "Resolve VOICEVOX 設定",
     Geometry = { 120, 120, 820, 940 },
   },
   ui:VGroup {
@@ -575,31 +557,31 @@ local function main()
     ui:VGroup {
       Weight = 0,
       Spacing = 4,
-      ui:Label { Text = "VOICEVOX" },
-      ui:HGroup { ui:Label { Text = "speaker", Weight = 0.35 }, ui:ComboBox { ID = "speaker_select", Weight = 0.65 } },
-      ui:HGroup { ui:Label { Text = "speed_scale", Weight = 0.35 }, ui:LineEdit { ID = "speed_scale", Weight = 0.65 } },
-      ui:HGroup { ui:Label { Text = "pitch_scale", Weight = 0.35 }, ui:LineEdit { ID = "pitch_scale", Weight = 0.65 } },
-      ui:HGroup { ui:Label { Text = "intonation_scale", Weight = 0.35 }, ui:LineEdit { ID = "intonation_scale", Weight = 0.65 } },
-      ui:HGroup { ui:Label { Text = "volume_scale", Weight = 0.35 }, ui:LineEdit { ID = "volume_scale", Weight = 0.65 } },
-      ui:HGroup { ui:Label { Text = "pre_phoneme_length", Weight = 0.35 }, ui:LineEdit { ID = "pre_phoneme_length", Weight = 0.65 } },
-      ui:HGroup { ui:Label { Text = "post_phoneme_length", Weight = 0.35 }, ui:LineEdit { ID = "post_phoneme_length", Weight = 0.65 } },
-      ui:HGroup { ui:Label { Text = "sample_rate", Weight = 0.35 }, ui:LineEdit { ID = "sample_rate", Weight = 0.65 } },
-      ui:HGroup { ui:Label { Text = "output_stereo", Weight = 0.35 }, ui:CheckBox { ID = "output_stereo", Weight = 0.65, Text = "Stereo" } },
+      ui:Label { Text = "VOICEVOX（音声合成）" },
+      ui:HGroup { ui:Label { Text = "話者", Weight = 0.35 }, ui:ComboBox { ID = "speaker_select", Weight = 0.65 } },
+      ui:HGroup { ui:Label { Text = "話速", Weight = 0.35 }, ui:LineEdit { ID = "speed_scale", Weight = 0.65 } },
+      ui:HGroup { ui:Label { Text = "音高", Weight = 0.35 }, ui:LineEdit { ID = "pitch_scale", Weight = 0.65 } },
+      ui:HGroup { ui:Label { Text = "抑揚", Weight = 0.35 }, ui:LineEdit { ID = "intonation_scale", Weight = 0.65 } },
+      ui:HGroup { ui:Label { Text = "音量", Weight = 0.35 }, ui:LineEdit { ID = "volume_scale", Weight = 0.65 } },
+      ui:HGroup { ui:Label { Text = "発話前の無音・秒", Weight = 0.35 }, ui:LineEdit { ID = "pre_phoneme_length", Weight = 0.65 } },
+      ui:HGroup { ui:Label { Text = "発話後の無音・秒", Weight = 0.35 }, ui:LineEdit { ID = "post_phoneme_length", Weight = 0.65 } },
+      ui:HGroup { ui:Label { Text = "サンプリングレート・Hz", Weight = 0.35 }, ui:LineEdit { ID = "sample_rate", Weight = 0.65 } },
+      ui:HGroup { ui:Label { Text = "ステレオ出力", Weight = 0.35 }, ui:CheckBox { ID = "output_stereo", Weight = 0.65, Text = "ステレオで出力する" } },
     },
 
     ui:VGroup {
       Weight = 0,
       Spacing = 4,
-      ui:Label { Text = "Resolve" },
-      ui:HGroup { ui:Label { Text = "text_track_index", Weight = 0.35 }, ui:LineEdit { ID = "text_track_index", Weight = 0.65 } },
+      ui:Label { Text = "Resolve（タイムライン）" },
+      ui:HGroup { ui:Label { Text = "テキストトラック番号", Weight = 0.35 }, ui:LineEdit { ID = "text_track_index", Weight = 0.65 } },
     },
 
     ui:VGroup {
       Weight = 0,
       Spacing = 4,
-      ui:Label { Text = "Runtime" },
+      ui:Label { Text = "実行設定（スクリプト全般）" },
       ui:HGroup {
-        ui:Label { Text = "output_dir", Weight = 0.35 },
+        ui:Label { Text = "出力先フォルダ", Weight = 0.35 },
         ui:HGroup {
           Weight = 0.65,
           Spacing = 4,
@@ -607,24 +589,15 @@ local function main()
           ui:Button { ID = "output_dir_browse", Text = "参照...", Weight = 0 },
         },
       },
-      ui:HGroup { ui:Label { Text = "log_path", Weight = 0.35 }, ui:LineEdit { ID = "log_path", Weight = 0.65 } },
-      ui:HGroup { ui:Label { Text = "overwrite", Weight = 0.35 }, ui:CheckBox { ID = "overwrite", Weight = 0.65, Text = "Regenerate wav" } },
-      ui:HGroup { ui:Label { Text = "audio_padding_sec", Weight = 0.35 }, ui:LineEdit { ID = "audio_padding_sec", Weight = 0.65 } },
-      ui:HGroup { ui:Label { Text = "watch_interval_sec", Weight = 0.35 }, ui:LineEdit { ID = "watch_interval_sec", Weight = 0.65 } },
-      ui:HGroup { ui:Label { Text = "watch_stable_cycles", Weight = 0.35 }, ui:LineEdit { ID = "watch_stable_cycles", Weight = 0.65 } },
-      ui:HGroup { ui:Label { Text = "watch_delete_grace_cycles", Weight = 0.35 }, ui:LineEdit { ID = "watch_delete_grace_cycles", Weight = 0.65 } },
-      ui:HGroup { ui:Label { Text = "watch_stop_file", Weight = 0.35 }, ui:LineEdit { ID = "watch_stop_file", Weight = 0.65 } },
-      ui:HGroup { ui:Label { Text = "watch_lock_file", Weight = 0.35 }, ui:LineEdit { ID = "watch_lock_file", Weight = 0.65 } },
-      ui:HGroup { ui:Label { Text = "managed_clip_prefix", Weight = 0.35 }, ui:LineEdit { ID = "managed_clip_prefix", Weight = 0.65 } },
-      ui:HGroup { ui:Label { Text = "link_clips", Weight = 0.35 }, ui:CheckBox { ID = "link_clips", Weight = 0.65, Text = "Link Text+ and audio clips" } },
+      ui:HGroup { ui:Label { Text = "ログファイル", Weight = 0.35 }, ui:LineEdit { ID = "log_path", Weight = 0.65 } },
     },
 
     ui:HGroup {
       Weight = 0,
-      ui:Button { ID = "test_btn", Text = "Test VOICEVOX" },
-      ui:Button { ID = "reset_btn", Text = "Reset" },
-      ui:Button { ID = "save_btn", Text = "Save" },
-      ui:Button { ID = "close_btn", Text = "Close" },
+      ui:Button { ID = "test_btn", Text = "VOICEVOX 接続テスト" },
+      ui:Button { ID = "reset_btn", Text = "初期値に戻す" },
+      ui:Button { ID = "save_btn", Text = "保存" },
+      ui:Button { ID = "close_btn", Text = "閉じる" },
     },
   })
 
@@ -721,15 +694,6 @@ local function main()
 
     items.output_dir.Text = tostring(rt.output_dir or "")
     items.log_path.Text = tostring(rt.log_path or "./run.log")
-    items.overwrite.Checked = rt.overwrite == true
-    items.audio_padding_sec.Text = tostring(rt.audio_padding_sec or 0.15)
-    items.watch_interval_sec.Text = tostring(rt.watch_interval_sec or 2)
-    items.watch_stable_cycles.Text = tostring(rt.watch_stable_cycles or 2)
-    items.watch_delete_grace_cycles.Text = tostring(rt.watch_delete_grace_cycles or 4)
-    items.watch_stop_file.Text = tostring(rt.watch_stop_file or "./watch.stop")
-    items.watch_lock_file.Text = tostring(rt.watch_lock_file or "./watch.lock")
-    items.managed_clip_prefix.Text = tostring(rt.managed_clip_prefix or "vvauto")
-    items.link_clips.Checked = rt.link_clips == true
 
     local speaker_ok, speaker_err = refresh_speakers(false)
     if speaker_ok then
@@ -758,17 +722,44 @@ local function main()
       runtime = {
         output_dir = trim(items.output_dir.Text),
         log_path = trim(items.log_path.Text),
-        overwrite = items.overwrite.Checked == true,
-        audio_padding_sec = to_number(items.audio_padding_sec.Text, 0.15),
-        watch_interval_sec = to_number(items.watch_interval_sec.Text, 2),
-        watch_stable_cycles = to_number(items.watch_stable_cycles.Text, 2),
-        watch_delete_grace_cycles = to_number(items.watch_delete_grace_cycles.Text, 4),
-        watch_stop_file = trim(items.watch_stop_file.Text),
-        watch_lock_file = trim(items.watch_lock_file.Text),
-        managed_clip_prefix = trim(items.managed_clip_prefix.Text),
-        link_clips = items.link_clips.Checked == true,
       },
     }
+  end
+
+  local function confirm_reset()
+    local answer = false
+    local dlg = disp:AddWindow({
+      ID = "VoiceVoxResetConfirm",
+      WindowTitle = "確認",
+      Geometry = { 300, 300, 380, 130 },
+    },
+    ui:VGroup {
+      ID = "root",
+      Spacing = 8,
+      ui:Label { Text = "設定を初期値に戻しますか？\n現在の設定内容は失われ、初期値で保存されます。", WordWrap = true },
+      ui:HGroup {
+        ui:Button { ID = "reset_yes_btn", Text = "初期値に戻す" },
+        ui:Button { ID = "reset_no_btn", Text = "キャンセル" },
+      },
+    })
+
+    function dlg.On.reset_yes_btn.Clicked()
+      answer = true
+      disp:ExitLoop()
+    end
+
+    function dlg.On.reset_no_btn.Clicked()
+      disp:ExitLoop()
+    end
+
+    function dlg.On.VoiceVoxResetConfirm.Close()
+      disp:ExitLoop()
+    end
+
+    dlg:Show()
+    disp:RunLoop()
+    dlg:Hide()
+    return answer
   end
 
   function win.On.output_dir_browse.Clicked()
@@ -830,6 +821,11 @@ local function main()
   end
 
   function win.On.reset_btn.Clicked()
+    if not confirm_reset() then
+      set_status("初期値への変更をキャンセルしました")
+      return
+    end
+
     local cfg = load_or_default_config("__non_existing__")
     local vv = cfg.voicevox or {}
     local rs = cfg.resolve or {}
@@ -849,15 +845,6 @@ local function main()
 
     items.output_dir.Text = tostring(rt.output_dir or "")
     items.log_path.Text = tostring(rt.log_path or "./run.log")
-    items.overwrite.Checked = rt.overwrite == true
-    items.audio_padding_sec.Text = tostring(rt.audio_padding_sec or 0.15)
-    items.watch_interval_sec.Text = tostring(rt.watch_interval_sec or 2)
-    items.watch_stable_cycles.Text = tostring(rt.watch_stable_cycles or 2)
-    items.watch_delete_grace_cycles.Text = tostring(rt.watch_delete_grace_cycles or 4)
-    items.watch_stop_file.Text = tostring(rt.watch_stop_file or "./watch.stop")
-    items.watch_lock_file.Text = tostring(rt.watch_lock_file or "./watch.lock")
-    items.managed_clip_prefix.Text = tostring(rt.managed_clip_prefix or "vvauto")
-    items.link_clips.Checked = rt.link_clips == true
 
     refresh_speakers(false)
 
