@@ -29,23 +29,61 @@ local function split_csv(s)
   return out
 end
 
+local function append_all(dst, src)
+  for _, v in ipairs(src) do
+    table.insert(dst, v)
+  end
+end
+
+local function default_voicevox()
+  return {
+    speaker_id = 1,
+    speed_scale = 1.0,
+    pitch_scale = 0.0,
+    intonation_scale = 1.0,
+    volume_scale = 1.0,
+    pre_phoneme_length = 0.1,
+    post_phoneme_length = 0.1,
+    sample_rate = 48000,
+    output_stereo = true,
+  }
+end
+
+local function voicevox_lines(vv, indent)
+  return {
+    string.format("%sspeaker_id = %d,", indent, math.floor(to_number(vv.speaker_id, 1))),
+    string.format("%sspeed_scale = %s,", indent, tostring(to_number(vv.speed_scale, 1.0))),
+    string.format("%spitch_scale = %s,", indent, tostring(to_number(vv.pitch_scale, 0.0))),
+    string.format("%sintonation_scale = %s,", indent, tostring(to_number(vv.intonation_scale, 1.0))),
+    string.format("%svolume_scale = %s,", indent, tostring(to_number(vv.volume_scale, 1.0))),
+    string.format("%spre_phoneme_length = %s,", indent, tostring(to_number(vv.pre_phoneme_length, 0.1))),
+    string.format("%spost_phoneme_length = %s,", indent, tostring(to_number(vv.post_phoneme_length, 0.1))),
+    string.format("%ssample_rate = %d,", indent, math.floor(to_number(vv.sample_rate, 48000))),
+    string.format("%soutput_stereo = %s,", indent, vv.output_stereo and "true" or "false"),
+  }
+end
+
 local function serialize_config(cfg)
-  local vv = cfg.voicevox or {}
   local rs = cfg.resolve or {}
   local rt = cfg.runtime or {}
+  local presets = cfg.presets or { selected = "", list = {} }
 
-  local lines = {
-    "return {",
-    "  voicevox = {",
-    string.format("    speaker_id = %d,", math.floor(to_number(vv.speaker_id, 1))),
-    string.format("    speed_scale = %s,", tostring(to_number(vv.speed_scale, 1.0))),
-    string.format("    pitch_scale = %s,", tostring(to_number(vv.pitch_scale, 0.0))),
-    string.format("    intonation_scale = %s,", tostring(to_number(vv.intonation_scale, 1.0))),
-    string.format("    volume_scale = %s,", tostring(to_number(vv.volume_scale, 1.0))),
-    string.format("    pre_phoneme_length = %s,", tostring(to_number(vv.pre_phoneme_length, 0.1))),
-    string.format("    post_phoneme_length = %s,", tostring(to_number(vv.post_phoneme_length, 0.1))),
-    string.format("    sample_rate = %d,", math.floor(to_number(vv.sample_rate, 48000))),
-    string.format("    output_stereo = %s,", vv.output_stereo and "true" or "false"),
+  local lines = { "return {", "  voicevox = {" }
+  append_all(lines, voicevox_lines(cfg.voicevox or {}, "    "))
+  append_all(lines, {
+    "  },",
+    "",
+    "  presets = {",
+    string.format('    selected = "%s",', escape_lua_string(presets.selected)),
+    "    list = {",
+  })
+  for _, item in ipairs(presets.list) do
+    append_all(lines, { "      {", string.format('        name = "%s",', escape_lua_string(item.name)), "        voicevox = {" })
+    append_all(lines, voicevox_lines(item.voicevox or {}, "          "))
+    append_all(lines, { "        },", "      }," })
+  end
+  append_all(lines, {
+    "    },",
     "  },",
     "",
     "  resolve = {",
@@ -58,35 +96,53 @@ local function serialize_config(cfg)
     "  },",
     "}",
     "",
-  }
+  })
 
   return table.concat(lines, "\n")
 end
 
-local function load_or_default_config(config_path)
-  local function default_config()
-    return {
-      voicevox = {
-        speaker_id = 1,
-        speed_scale = 1.0,
-        pitch_scale = 0.0,
-        intonation_scale = 1.0,
-        volume_scale = 1.0,
-        pre_phoneme_length = 0.1,
-        post_phoneme_length = 0.1,
-        sample_rate = 48000,
-        output_stereo = true,
-      },
-      resolve = {
-        text_track_index = 1,
-      },
-      runtime = {
-        output_dir = "",
-        log_path = "./run.log",
-      },
-    }
+local function default_config()
+  return {
+    voicevox = default_voicevox(),
+    resolve = {
+      text_track_index = 1,
+    },
+    runtime = {
+      output_dir = "",
+      log_path = "./run.log",
+    },
+  }
+end
+
+local function normalize_presets(cfg)
+  local vv_now = cfg.voicevox or default_voicevox()
+  local p = cfg.presets or {}
+  local list = {}
+  for _, item in ipairs(p.list or {}) do
+    if type(item) == "table" and trim(item.name) ~= "" and type(item.voicevox) == "table" then
+      table.insert(list, { name = trim(item.name), voicevox = item.voicevox })
+    end
+  end
+  if #list == 0 then
+    table.insert(list, { name = "標準", voicevox = vv_now })
   end
 
+  local selected = trim(p.selected)
+  local found = false
+  for _, item in ipairs(list) do
+    if item.name == selected then
+      found = true
+      break
+    end
+  end
+  if not found then
+    selected = list[1].name
+  end
+
+  return { selected = selected, list = list }
+end
+
+local function load_or_default_config(config_path)
   local ok, cfg = pcall(dofile, config_path)
   if ok and type(cfg) == "table" then
     return cfg
@@ -557,6 +613,18 @@ local function main()
     ui:VGroup {
       Weight = 0,
       Spacing = 4,
+      ui:Label { Text = "プリセット" },
+      ui:HGroup {
+        ui:ComboBox { ID = "preset_select", Weight = 0.5 },
+        ui:Button { ID = "preset_add_btn", Text = "追加", Weight = 0 },
+        ui:Button { ID = "preset_update_btn", Text = "更新", Weight = 0 },
+        ui:Button { ID = "preset_delete_btn", Text = "削除", Weight = 0 },
+      },
+    },
+
+    ui:VGroup {
+      Weight = 0,
+      Spacing = 4,
       ui:Label { Text = "VOICEVOX（音声合成）" },
       ui:HGroup { ui:Label { Text = "話者", Weight = 0.35 }, ui:ComboBox { ID = "speaker_select", Weight = 0.65 } },
       ui:HGroup { ui:Label { Text = "話速", Weight = 0.35 }, ui:LineEdit { ID = "speed_scale", Weight = 0.65 } },
@@ -674,13 +742,22 @@ local function main()
     return false, err
   end
 
-  local function load_to_form()
-    local cfg = load_or_default_config(config_load_path)
-    local vv = cfg.voicevox or {}
-    local rs = cfg.resolve or {}
-    local rt = cfg.runtime or {}
+  local presets = { selected = "", list = {} }
+  local suppress_preset_event = false
 
+  local function preset_index(name)
+    for i, item in ipairs(presets.list) do
+      if item.name == name then
+        return i
+      end
+    end
+    return nil
+  end
+
+  local function set_form_voicevox(vv)
+    vv = vv or {}
     current_speaker_id = tonumber(vv.speaker_id or 1) or 1
+    set_speaker_selection_by_id(current_speaker_id)
     items.speed_scale.Text = tostring(vv.speed_scale or 1.0)
     items.pitch_scale.Text = tostring(vv.pitch_scale or 0.0)
     items.intonation_scale.Text = tostring(vv.intonation_scale or 1.0)
@@ -689,6 +766,44 @@ local function main()
     items.post_phoneme_length.Text = tostring(vv.post_phoneme_length or 0.1)
     items.sample_rate.Text = tostring(vv.sample_rate or 48000)
     items.output_stereo.Checked = vv.output_stereo ~= false
+  end
+
+  local function read_voicevox_from_form()
+    return {
+      speaker_id = get_selected_speaker_id(),
+      speed_scale = to_number(items.speed_scale.Text, 1.0),
+      pitch_scale = to_number(items.pitch_scale.Text, 0.0),
+      intonation_scale = to_number(items.intonation_scale.Text, 1.0),
+      volume_scale = to_number(items.volume_scale.Text, 1.0),
+      pre_phoneme_length = to_number(items.pre_phoneme_length.Text, 0.1),
+      post_phoneme_length = to_number(items.post_phoneme_length.Text, 0.1),
+      sample_rate = to_number(items.sample_rate.Text, 48000),
+      output_stereo = items.output_stereo.Checked == true,
+    }
+  end
+
+  local function refresh_preset_combo()
+    suppress_preset_event = true
+    items.preset_select:Clear()
+    local idx = 0
+    for i, item in ipairs(presets.list) do
+      items.preset_select:AddItem(item.name)
+      if item.name == presets.selected then
+        idx = i - 1
+      end
+    end
+    items.preset_select.CurrentIndex = idx
+    suppress_preset_event = false
+  end
+
+  local function load_to_form()
+    local cfg = load_or_default_config(config_load_path)
+    local rs = cfg.resolve or {}
+    local rt = cfg.runtime or {}
+
+    presets = normalize_presets(cfg)
+    refresh_preset_combo()
+    set_form_voicevox(cfg.voicevox)
 
     items.text_track_index.Text = tostring(rs.text_track_index or 1)
 
@@ -705,17 +820,8 @@ local function main()
 
   local function read_from_form()
     return {
-      voicevox = {
-        speaker_id = get_selected_speaker_id(),
-        speed_scale = to_number(items.speed_scale.Text, 1.0),
-        pitch_scale = to_number(items.pitch_scale.Text, 0.0),
-        intonation_scale = to_number(items.intonation_scale.Text, 1.0),
-        volume_scale = to_number(items.volume_scale.Text, 1.0),
-        pre_phoneme_length = to_number(items.pre_phoneme_length.Text, 0.1),
-        post_phoneme_length = to_number(items.post_phoneme_length.Text, 0.1),
-        sample_rate = to_number(items.sample_rate.Text, 48000),
-        output_stereo = items.output_stereo.Checked == true,
-      },
+      voicevox = read_voicevox_from_form(),
+      presets = { selected = presets.selected, list = presets.list },
       resolve = {
         text_track_index = to_number(items.text_track_index.Text, 1),
       },
@@ -726,33 +832,33 @@ local function main()
     }
   end
 
-  local function confirm_reset()
+  local function confirm_action(message, yes_text)
     local answer = false
     local dlg = disp:AddWindow({
-      ID = "VoiceVoxResetConfirm",
+      ID = "VoiceVoxConfirm",
       WindowTitle = "確認",
       Geometry = { 300, 300, 380, 130 },
     },
     ui:VGroup {
       ID = "root",
       Spacing = 8,
-      ui:Label { Text = "設定を初期値に戻しますか？\n現在の設定内容は失われ、初期値で保存されます。", WordWrap = true },
+      ui:Label { Text = message, WordWrap = true },
       ui:HGroup {
-        ui:Button { ID = "reset_yes_btn", Text = "初期値に戻す" },
-        ui:Button { ID = "reset_no_btn", Text = "キャンセル" },
+        ui:Button { ID = "confirm_yes_btn", Text = yes_text },
+        ui:Button { ID = "confirm_no_btn", Text = "キャンセル" },
       },
     })
 
-    function dlg.On.reset_yes_btn.Clicked()
+    function dlg.On.confirm_yes_btn.Clicked()
       answer = true
       disp:ExitLoop()
     end
 
-    function dlg.On.reset_no_btn.Clicked()
+    function dlg.On.confirm_no_btn.Clicked()
       disp:ExitLoop()
     end
 
-    function dlg.On.VoiceVoxResetConfirm.Close()
+    function dlg.On.VoiceVoxConfirm.Close()
       disp:ExitLoop()
     end
 
@@ -760,6 +866,44 @@ local function main()
     disp:RunLoop()
     dlg:Hide()
     return answer
+  end
+
+  local function ask_text(title, label)
+    local result = nil
+    local dlg = disp:AddWindow({
+      ID = "VoiceVoxAskText",
+      WindowTitle = title,
+      Geometry = { 300, 300, 380, 130 },
+    },
+    ui:VGroup {
+      ID = "root",
+      Spacing = 8,
+      ui:Label { Text = label },
+      ui:LineEdit { ID = "ask_text_edit" },
+      ui:HGroup {
+        ui:Button { ID = "ask_ok_btn", Text = "OK" },
+        ui:Button { ID = "ask_cancel_btn", Text = "キャンセル" },
+      },
+    })
+    local dlg_items = dlg:GetItems()
+
+    function dlg.On.ask_ok_btn.Clicked()
+      result = trim(dlg_items.ask_text_edit.Text)
+      disp:ExitLoop()
+    end
+
+    function dlg.On.ask_cancel_btn.Clicked()
+      disp:ExitLoop()
+    end
+
+    function dlg.On.VoiceVoxAskText.Close()
+      disp:ExitLoop()
+    end
+
+    dlg:Show()
+    disp:RunLoop()
+    dlg:Hide()
+    return result
   end
 
   function win.On.output_dir_browse.Clicked()
@@ -804,6 +948,63 @@ local function main()
     current_speaker_id = get_selected_speaker_id()
   end
 
+  function win.On.preset_select.CurrentIndexChanged()
+    if suppress_preset_event then return end
+    local item = presets.list[(tonumber(items.preset_select.CurrentIndex) or 0) + 1]
+    if not item or item.name == presets.selected then return end
+    presets.selected = item.name
+    set_form_voicevox(item.voicevox)
+    set_status("プリセットを読み込みました: " .. item.name)
+  end
+
+  function win.On.preset_add_btn.Clicked()
+    local name = ask_text("プリセットの追加", "プリセット名")
+    if not name then return end
+    if name == "" then
+      set_status("プリセット名が空です")
+      return
+    end
+    if preset_index(name) then
+      set_status("同じ名前のプリセットがあります: " .. name)
+      return
+    end
+    table.insert(presets.list, { name = name, voicevox = read_voicevox_from_form() })
+    presets.selected = name
+    refresh_preset_combo()
+    set_status("プリセットを追加しました: " .. name)
+  end
+
+  function win.On.preset_update_btn.Clicked()
+    local idx = preset_index(presets.selected)
+    if not idx then
+      set_status("更新するプリセットがありません")
+      return
+    end
+    presets.list[idx].voicevox = read_voicevox_from_form()
+    set_status("プリセットを更新しました: " .. presets.selected)
+  end
+
+  function win.On.preset_delete_btn.Clicked()
+    local idx = preset_index(presets.selected)
+    if not idx then
+      set_status("削除するプリセットがありません")
+      return
+    end
+    if #presets.list <= 1 then
+      set_status("最後のプリセットは削除できません")
+      return
+    end
+    if not confirm_action("プリセット「" .. presets.selected .. "」を削除しますか？", "削除") then
+      set_status("削除をキャンセルしました")
+      return
+    end
+    table.remove(presets.list, idx)
+    presets.selected = presets.list[1].name
+    refresh_preset_combo()
+    set_form_voicevox(presets.list[1].voicevox)
+    set_status("プリセットを削除しました")
+  end
+
   function win.On.save_btn.Clicked()
     local cfg = read_from_form()
     if trim(cfg.runtime.output_dir or "") == "" then
@@ -821,25 +1022,19 @@ local function main()
   end
 
   function win.On.reset_btn.Clicked()
-    if not confirm_reset() then
+    if not confirm_action("設定を初期値に戻しますか？\n現在の設定内容とプリセットは失われ、初期値で保存されます。", "初期値に戻す") then
       set_status("初期値への変更をキャンセルしました")
       return
     end
 
     local cfg = load_or_default_config("__non_existing__")
-    local vv = cfg.voicevox or {}
     local rs = cfg.resolve or {}
     local rt = cfg.runtime or {}
 
-    current_speaker_id = tonumber(vv.speaker_id or 1) or 1
-    items.speed_scale.Text = tostring(vv.speed_scale or 1.0)
-    items.pitch_scale.Text = tostring(vv.pitch_scale or 0.0)
-    items.intonation_scale.Text = tostring(vv.intonation_scale or 1.0)
-    items.volume_scale.Text = tostring(vv.volume_scale or 1.0)
-    items.pre_phoneme_length.Text = tostring(vv.pre_phoneme_length or 0.1)
-    items.post_phoneme_length.Text = tostring(vv.post_phoneme_length or 0.1)
-    items.sample_rate.Text = tostring(vv.sample_rate or 48000)
-    items.output_stereo.Checked = vv.output_stereo ~= false
+    presets = normalize_presets(cfg)
+    cfg.presets = presets
+    refresh_preset_combo()
+    set_form_voicevox(cfg.voicevox)
 
     items.text_track_index.Text = tostring(rs.text_track_index or 1)
 
