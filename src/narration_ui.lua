@@ -898,11 +898,10 @@ local function main()
 
     ui:HGroup {
       Weight = 0,
-      ui:Button { ID = "split_btn", Text = "Split Lines" },
       ui:Button { ID = "clear_btn", Text = "Clear Lines" },
     },
 
-    ui:Label { ID = "preview_header", Text = "Split preview (read-only):", Weight = 0 },
+    ui:Label { ID = "preview_header", Text = "Live preview (read-only):", Weight = 0 },
     ui:TextEdit { ID = "lines_preview", Weight = 1, PlainText = "", Enabled = false },
 
     ui:HGroup {
@@ -916,11 +915,9 @@ local function main()
 
   -- State
   local lines                 = {}
-  local last_split_source     = ""
   local last_place_started_at = 0
   local is_processing         = false
   local cancel_requested      = false
-  local in_split_view         = false
 
   -- ---- Progress dialog ----
   local loading_win = disp:AddWindow({
@@ -949,15 +946,13 @@ local function main()
     items.status.Text = tostring(msg or "")
   end
 
-  local function ensure_lines_from_input()
-    if in_split_view and #lines > 0 then
-      set_status(string.format("%d lines prepared", #lines))
-      return
+  local function refresh_preview(src)
+    lines = split_non_empty_lines(src)
+    local preview = {}
+    for i, line in ipairs(lines) do
+      table.insert(preview, string.format("%d. %s", i, line))
     end
-    local src     = tostring(items.text_input.PlainText or "")
-    lines             = split_non_empty_lines(src)
-    last_split_source = src
-    in_split_view     = false
+    items.lines_preview.PlainText = table.concat(preview, "\n")
     set_status(string.format("%d lines prepared", #lines))
   end
 
@@ -976,20 +971,10 @@ local function main()
     end
     last_place_started_at = now_sec
 
-    -- Sync lines from text_input when not already in split view
-    local current_source = tostring(items.text_input.PlainText or "")
-    if trim(current_source) ~= "" and current_source ~= last_split_source then
-      lines             = split_non_empty_lines(current_source)
-      last_split_source = current_source
-    end
-
-    lines = normalize_line_list(lines)
+    lines = split_non_empty_lines(tostring(items.text_input.PlainText or ""))
     if #lines == 0 then
-      ensure_lines_from_input()
-      if #lines == 0 then
-        set_status("input is empty")
-        return
-      end
+      set_status("input is empty")
+      return
     end
 
     -- Load config
@@ -1238,36 +1223,12 @@ local function main()
 
   -- ---- UI event handlers ----
 
-  function win.On.split_btn.Clicked()
-    local src = tostring(items.text_input.PlainText or "")
-    lines             = split_non_empty_lines(src)
-    last_split_source = src
-    if #lines > 0 then
-      local preview = {}
-      for i, line in ipairs(lines) do
-        table.insert(preview, string.format("%d. %s", i, line))
-      end
-      items.lines_preview.PlainText = table.concat(preview, "\n")
-      in_split_view = true
-      set_status(string.format("%d lines prepared", #lines))
-    else
-      in_split_view = false
-      items.lines_preview.PlainText = ""
-      set_status("no lines found")
-    end
-  end
-
   function win.On.text_input.TextChanged()
-    if in_split_view then
-      in_split_view = false
-      lines         = {}
-      items.lines_preview.PlainText = "(text changed — click Split Lines again)"
-    end
+    refresh_preview(tostring(items.text_input.PlainText or ""))
   end
 
   function win.On.clear_btn.Clicked()
-    lines         = {}
-    in_split_view = false
+    lines = {}
     items.text_input.PlainText    = ""
     items.lines_preview.PlainText = ""
     set_status("lines cleared")
